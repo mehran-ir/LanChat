@@ -17,14 +17,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
+      - name: Install dependencies
+        run: pip install pyinstaller pillow
 
       - name: Build EXE
-        run: pyinstaller --onefile --windowed --name LANChat main.py
+        run: pyinstaller --onefile --windowed --name "LanChat by MGH" --hidden-import=PIL._tkinter_finder main.py
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LANChat-windows-exe
-          path: dist/LANChat.exe
+          name: LanChat-by-MGH-windows-exe
+          path: "dist/LanChat by MGH.exe"
