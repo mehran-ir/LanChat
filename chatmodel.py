@@ -11,7 +11,7 @@ def new_id() -> str:
 
 
 class ChatEntry:
-    def __init__(self, key, name, is_group=False, members=None, ip=None, port=None, bg_image=None):
+    def __init__(self, key, name, is_group=False, members=None, ip=None, port=None, bg_image=None, unread=0):
         self.key = key
         self.name = name
         self.is_group = is_group
@@ -20,6 +20,7 @@ class ChatEntry:
         self.port = port  # فقط برای چت تکی
         self.messages = []  # لیست دیکشنری پیام
         self.bg_image = bg_image  # مسیر فایل تصویر پس‌زمینه اختصاصی این چت
+        self.unread = unread  # تعداد پیام/رویداد خوانده‌نشده (برای نمایش Badge کنار نام)
 
     @property
     def display_name(self):
@@ -56,6 +57,7 @@ class ChatEntry:
             "port": self.port,
             "messages": self.messages,
             "bg_image": self.bg_image,
+            "unread": self.unread,
         }
 
     @staticmethod
@@ -68,6 +70,7 @@ class ChatEntry:
             ip=d.get("ip"),
             port=d.get("port"),
             bg_image=d.get("bg_image"),
+            unread=d.get("unread", 0),
         )
         c.messages = d.get("messages", [])
         return c

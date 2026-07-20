@@ -4,6 +4,7 @@
 """
 import os
 import queue
+import shutil
 import sys
 import threading
 import tkinter as tk
@@ -19,7 +20,7 @@ import soundfx
 import persistence
 from chatmodel import ChatEntry, make_message, new_id
 from chatview import ChatView
-from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color
+from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR
 
 EMOJIS = [
     "😀", "😂", "😍", "👍", "👎", "🙏", "🎉", "❤️",
@@ -37,6 +38,7 @@ def resource_base_dir():
 
 BASE_DIR = resource_base_dir()
 RECEIVED_DIR = os.path.join(BASE_DIR, "received_files")
+BACKGROUNDS_DIR = os.path.join(BASE_DIR, "chat_backgrounds")
 STATE_PATH = os.path.join(BASE_DIR, "lanchat_data.json")
 
 
@@ -51,11 +53,13 @@ class LANChatApp:
         self.root.minsize(760, 480)
 
         os.makedirs(RECEIVED_DIR, exist_ok=True)
+        os.makedirs(BACKGROUNDS_DIR, exist_ok=True)
 
         raw_state = persistence.load_state(STATE_PATH)
         self.contacts = {k: ChatEntry.from_dict(v) for k, v in raw_state.get("contacts", {}).items()}
         self.groups = {k: ChatEntry.from_dict(v) for k, v in raw_state.get("groups", {}).items()}
         self.theme_color = raw_state.get("settings", {}).get("theme_color", DEFAULT_THEME)
+        self.chatbox_color = raw_state.get("settings", {}).get("chatbox_color", DEFAULT_CHATBOX_COLOR)
 
         self.selected_key = None
         self.incoming_queue = queue.Queue()
@@ -161,7 +165,7 @@ class LANChatApp:
 
         self.chatview = ChatView(
             right, on_recall=self._handle_recall_click, on_open_file=self._open_path,
-            theme_color=self.theme_color,
+            theme_color=self.theme_color, box_color=self.chatbox_color,
         )
         self.chatview.pack(fill="both", expand=True)
 
@@ -213,10 +217,13 @@ class LANChatApp:
         )
         self.server.start()
 
+        # broadcast فقط با کلیک دستی روی «اسکن شبکه» انجام می‌شود، نه به‌صورت خودکار،
+        # تا پهنای باند شبکه بدون درخواست کاربر درگیر نشود.
+        self._refresh_contact_list()
         if not self.contacts and not self.groups:
-            self.root.after(400, self._on_scan_clicked)
-        else:
-            self._refresh_contact_list()
+            self.status_label.config(
+                text="برای پیدا کردن کامپیوترها روی «اسکن شبکه» بزنید", foreground="#b46a00"
+            )
 
     def _on_message_received_threadsafe(self, header):
         self.incoming_queue.put(header)
@@ -240,12 +247,19 @@ class LANChatApp:
             chat = self.groups.get(group_id)
             if chat is None:
                 members = header.get("members") or []
-                # خودم را از لیست اعضا حذف می‌کنم چون خودم را جزو اعضای خودم نگه نمی‌داریم
+                # فقط اگر خودم واقعاً در فهرست اعضای این پیام گروهی معرفی شده باشم،
+                # گروه را می‌سازم؛ در غیر این صورت این پیام به من ربطی ندارد و نادیده گرفته می‌شود
+                if not any(m.get("ip") == self.my_ip for m in members):
+                    return
                 members = [m for m in members if m.get("ip") != self.my_ip]
                 chat = ChatEntry(key=group_id, name=header.get("group_name") or "گروه جدید",
                                   is_group=True, members=members)
                 self.groups[group_id] = chat
             else:
+                # فقط پیام‌هایی که واقعاً از یکی از اعضای شناخته‌شده همین گروه می‌رسد پذیرفته می‌شود
+                known_ips = {m.get("ip") for m in chat.members}
+                if ip not in known_ips:
+                    return
                 self._merge_group_members(chat, header.get("members") or [])
         else:
             chat = self._find_or_create_single_contact(ip, from_name)
@@ -284,12 +298,14 @@ class LANChatApp:
         else:
             return
 
-        self._save_state()
-
         if self.selected_key == chat.key:
+            self._save_state()
             self._render_selected()
         else:
-            self._refresh_contact_list(highlight_key=chat.key)
+            if notify_needed:
+                chat.unread += 1
+            self._save_state()
+            self._refresh_contact_list()
 
         if notify_needed:
             self._maybe_notify(notify_title, notify_body)
@@ -410,21 +426,23 @@ class LANChatApp:
 
         ttk.Button(dlg, text="ایجاد گروه", command=confirm).pack(pady=10)
 
-    def _refresh_contact_list(self, highlight_key=None):
+    def _refresh_contact_list(self):
         filter_text = self._real_text_by_var(self.contact_search_var).strip().lower()
         self.contact_listbox.delete(0, "end")
         items = list(self.contacts.values()) + list(self.groups.values())
         if filter_text:
             items = [c for c in items if filter_text in c.name.lower()]
         self._contact_keys_in_order = [c.key for c in items]
-        for c in items:
+        for i, c in enumerate(items):
             label = c.display_name
-            if highlight_key == c.key and c.key != self.selected_key:
-                label = "🔵 " + label
+            if c.unread > 0:
+                badge = c.unread if c.unread <= 99 else "99+"
+                label = f"{label}   🔴 {badge}"
             self.contact_listbox.insert("end", label)
+            if c.unread > 0:
+                self.contact_listbox.itemconfig(i, fg="#c0392b")
             if c.key == self.selected_key:
-                idx = self._contact_keys_in_order.index(c.key)
-                self.contact_listbox.selection_set(idx)
+                self.contact_listbox.selection_set(i)
 
     def _real_text_by_var(self, var):
         val = var.get()
@@ -449,6 +467,9 @@ class LANChatApp:
         title = f"👥 گروه: {chat.name}" if chat.is_group else f"گفتگو با {chat.name} ({chat.ip})"
         self.chat_title.config(text=title)
         self.chat_search_var.set("")
+        if chat.unread > 0:
+            chat.unread = 0
+            self._save_state()
         self._render_selected()
         self._refresh_contact_list()
 
@@ -623,6 +644,16 @@ class LANChatApp:
         self._save_state()
         self._render_if_open(chat)
 
+    def _cleanup_managed_bg(self, chat):
+        """اگر تصویر پس‌زمینه فعلی این چت از قبل داخل پوشه مدیریت‌شده برنامه کپی شده، آن را پاک می‌کند"""
+        old = chat.bg_image
+        if old:
+            try:
+                if os.path.abspath(os.path.dirname(old)) == os.path.abspath(BACKGROUNDS_DIR):
+                    os.remove(old)
+            except Exception:
+                pass
+
     def _on_choose_chat_bg(self):
         chat = self._get_selected_chat()
         if not chat:
@@ -634,14 +665,26 @@ class LANChatApp:
         )
         if not path:
             return
-        chat.bg_image = path
-        self.chatview.set_background_image(path)
+
+        try:
+            os.makedirs(BACKGROUNDS_DIR, exist_ok=True)
+            ext = os.path.splitext(path)[1].lower() or ".png"
+            dest_path = os.path.join(BACKGROUNDS_DIR, f"{new_id()}{ext}")
+            shutil.copyfile(path, dest_path)
+        except Exception as e:
+            messagebox.showerror("خطا", f"کپی تصویر پس‌زمینه در پوشه برنامه ممکن نشد:\n{e}")
+            return
+
+        self._cleanup_managed_bg(chat)
+        chat.bg_image = dest_path
+        self.chatview.set_background_image(dest_path)
         self._save_state()
 
     def _on_remove_chat_bg(self):
         chat = self._get_selected_chat()
         if not chat:
             return
+        self._cleanup_managed_bg(chat)
         chat.bg_image = None
         self.chatview.set_background_image(None)
         self._save_state()
@@ -765,7 +808,7 @@ class LANChatApp:
         data = {
             "contacts": {k: c.to_dict() for k, c in self.contacts.items()},
             "groups": {k: c.to_dict() for k, c in self.groups.items()},
-            "settings": {"theme_color": self.theme_color},
+            "settings": {"theme_color": self.theme_color, "chatbox_color": self.chatbox_color},
         }
         persistence.save_state(STATE_PATH, data)
 

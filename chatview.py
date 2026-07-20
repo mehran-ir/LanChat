@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from jalali import jalali_datetime_str
-from theme import contrast_text_color
+from theme import contrast_text_color, DEFAULT_CHATBOX_COLOR
 
 try:
     from PIL import Image, ImageTk
@@ -23,13 +23,15 @@ BUBBLE_WIDTH = 340
 
 
 class ChatView(tk.Frame):
-    def __init__(self, parent, on_recall, on_open_file, theme_color="#AFEEEE", **kwargs):
+    def __init__(self, parent, on_recall, on_open_file, theme_color="#AFEEEE",
+                 box_color=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.on_recall = on_recall
         self.on_open_file = on_open_file
         self.theme_color = theme_color
+        self.box_color = box_color or DEFAULT_CHATBOX_COLOR
 
-        self.canvas = tk.Canvas(self, highlightthickness=0, bg=theme_color)
+        self.canvas = tk.Canvas(self, highlightthickness=0, bg=self.box_color)
         self.vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=self.vbar.set)
         self.canvas.pack(side="left", fill="both", expand=True)
@@ -53,8 +55,11 @@ class ChatView(tk.Frame):
     # ---------------------------------------------------------------- API ---
     def set_theme(self, color):
         self.theme_color = color
+
+    def set_box_color(self, color):
+        self.box_color = color or DEFAULT_CHATBOX_COLOR
         if not self.bg_path:
-            self.canvas.configure(bg=color)
+            self.canvas.configure(bg=self.box_color)
 
     def set_background_image(self, path):
         self.bg_path = path
@@ -90,7 +95,7 @@ class ChatView(tk.Frame):
         w = max(self.canvas.winfo_width(), 10)
         h = max(self.canvas.winfo_height(), 10)
         if not self.bg_path or not os.path.exists(self.bg_path):
-            self.canvas.configure(bg=self.theme_color)
+            self.canvas.configure(bg=self.box_color)
             self._bg_photo = None
             return
         try:
@@ -103,7 +108,7 @@ class ChatView(tk.Frame):
             self.canvas.create_image(0, 0, image=self._bg_photo, anchor="nw", tags=("bg",))
             self.canvas.tag_lower("bg")
         except Exception:
-            self.canvas.configure(bg=self.theme_color)
+            self.canvas.configure(bg=self.box_color)
             self._bg_photo = None
 
     def _redraw(self):

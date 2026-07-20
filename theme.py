@@ -6,6 +6,9 @@
 DEFAULT_THEME = "#AFEEEE"
 THEME_OPTIONS = ["#AFEEEE", "#FFDDF4", "#010B13", "#ACE1AF"]
 
+# رنگ پیش‌فرض خود باکس نمایش گفتگو — عمداً از رنگ زمینه کلی برنامه متفاوت است
+DEFAULT_CHATBOX_COLOR = "#F0F8FF"
+
 THEME_NAMES = {
     "#AFEEEE": "فیروزه‌ای (پیش‌فرض)",
     "#FFDDF4": "صورتی",
