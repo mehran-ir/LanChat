@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-پروتکل ساده برای ارسال/دریافت پیام متنی و فایل روی TCP
+پروتکل ارسال/دریافت پیام، فایل، لغو پیام (recall) و بازر (buzz) روی TCP
 قالب فریم:
     [4 بایت طول هدر (big-endian)] [هدر JSON] [در صورت فایل: بایت‌های خام فایل]
 """
@@ -14,7 +14,6 @@ CHUNK_SIZE = 65536
 
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes:
-    """دقیقا n بایت از سوکت می‌خواند (ممکن است در چند مرحله برسد)"""
     buf = bytearray()
     while len(buf) < n:
         chunk = sock.recv(min(CHUNK_SIZE, n - len(buf)))
@@ -24,14 +23,25 @@ def _recv_exact(sock: socket.socket, n: int) -> bytes:
     return bytes(buf)
 
 
-def send_message(sock: socket.socket, from_name: str, text: str):
-    header = {"type": "msg", "from": from_name, "text": text}
+def _send_header_only(sock: socket.socket, header: dict):
     header_bytes = json.dumps(header, ensure_ascii=False).encode("utf-8")
     sock.sendall(struct.pack(">I", len(header_bytes)))
     sock.sendall(header_bytes)
 
 
-def send_file(sock: socket.socket, from_name: str, filepath: str, progress_cb=None):
+def send_message(sock: socket.socket, from_name: str, text: str, msg_id: str,
+                  group_id: str = None, group_name: str = None, members: list = None):
+    header = {"type": "msg", "from": from_name, "text": text, "id": msg_id}
+    if group_id:
+        header["group_id"] = group_id
+        header["group_name"] = group_name
+        header["members"] = members
+    _send_header_only(sock, header)
+
+
+def send_file(sock: socket.socket, from_name: str, filepath: str, msg_id: str,
+              group_id: str = None, group_name: str = None, members: list = None,
+              progress_cb=None):
     filesize = os.path.getsize(filepath)
     filename = os.path.basename(filepath)
     header = {
@@ -39,7 +49,13 @@ def send_file(sock: socket.socket, from_name: str, filepath: str, progress_cb=No
         "from": from_name,
         "filename": filename,
         "filesize": filesize,
+        "id": msg_id,
     }
+    if group_id:
+        header["group_id"] = group_id
+        header["group_name"] = group_name
+        header["members"] = members
+
     header_bytes = json.dumps(header, ensure_ascii=False).encode("utf-8")
     sock.sendall(struct.pack(">I", len(header_bytes)))
     sock.sendall(header_bytes)
@@ -56,12 +72,24 @@ def send_file(sock: socket.socket, from_name: str, filepath: str, progress_cb=No
                 progress_cb(sent, filesize)
 
 
+def send_recall(sock: socket.socket, from_name: str, target_id: str, group_id: str = None):
+    header = {"type": "recall", "from": from_name, "target_id": target_id}
+    if group_id:
+        header["group_id"] = group_id
+    _send_header_only(sock, header)
+
+
+def send_buzz(sock: socket.socket, from_name: str, group_id: str = None):
+    header = {"type": "buzz", "from": from_name}
+    if group_id:
+        header["group_id"] = group_id
+    _send_header_only(sock, header)
+
+
 def recv_frame(sock: socket.socket, save_dir: str):
     """
-    یک فریم کامل را از سوکت می‌خواند.
-    اگر پیام متنی باشد -> {"type": "msg", "from":..., "text":...}
-    اگر فایل باشد -> فایل را در save_dir ذخیره می‌کند و
-        {"type": "file", "from":..., "filename":..., "filesize":..., "path":...} برمی‌گرداند
+    یک فریم کامل را از سوکت می‌خواند و دیکشنری هدر را برمی‌گرداند.
+    برای نوع 'file'، فایل را در save_dir ذخیره کرده و مسیر آن را در header['path'] می‌گذارد.
     """
     header_len_bytes = _recv_exact(sock, HEADER_LEN_SIZE)
     (header_len,) = struct.unpack(">I", header_len_bytes)
@@ -71,7 +99,6 @@ def recv_frame(sock: socket.socket, save_dir: str):
     if header.get("type") == "file":
         os.makedirs(save_dir, exist_ok=True)
         filename = header.get("filename", "received_file")
-        # جلوگیری از رونویسی فایل‌های هم‌نام
         base, ext = os.path.splitext(filename)
         dest_path = os.path.join(save_dir, filename)
         counter = 1

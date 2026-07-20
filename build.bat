@@ -13,16 +13,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/3] نصب PyInstaller ...
-pip install --upgrade pyinstaller
+echo [1/3] نصب PyInstaller و Pillow ...
+pip install --upgrade pyinstaller pillow
 
 echo.
 echo [2/3] ساخت فایل exe ...
-pyinstaller --onefile --windowed --name LANChat main.py
+pyinstaller --onefile --windowed --name "LanChat by MGH" main.py
 
 echo.
 echo [3/3] پایان.
-echo فایل نهایی در پوشه dist\LANChat.exe قرار دارد.
+echo فایل نهایی در پوشه dist\"LanChat by MGH.exe" قرار دارد.
 echo این فایل را می‌توانید روی هر کامپیوتر ویندوزی دیگری کپی و اجرا کنید
 echo (نیازی به نصب پایتون روی آن سیستم‌ها نیست).
 echo.
