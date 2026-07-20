@@ -9,6 +9,7 @@ from netprotocol import (
     send_file as _send_file,
     send_recall as _send_recall,
     send_buzz as _send_buzz,
+    send_read as _send_read,
 )
 
 
@@ -54,5 +55,16 @@ def send_buzz(ip: str, port: int, from_name: str, group_id=None, timeout: float 
         sock.connect((ip, port))
         sock.settimeout(None)
         _send_buzz(sock, from_name, group_id)
+    finally:
+        sock.close()
+
+
+def send_read(ip: str, port: int, from_name: str, message_ids: list, group_id=None, timeout: float = 5.0):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, port))
+        sock.settimeout(None)
+        _send_read(sock, from_name, message_ids, group_id)
     finally:
         sock.close()

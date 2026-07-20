@@ -160,9 +160,7 @@ class ChatView(tk.Frame):
 
     def _draw_bubble(self, y, msg, text, outgoing, sender, is_group):
         w = max(self.canvas.winfo_width(), 200)
-        bubble_color = "#dcf3f3" if outgoing else "#ffffff"
-        if self.bg_path:
-            bubble_color = "#dff8f8" if outgoing else "#f4f4f4"
+        bubble_color = "#ffffff"
         text_color = "#111111"
 
         header = ""
@@ -189,8 +187,9 @@ class ChatView(tk.Frame):
             x1 = 20
             x2 = x1 + bubble_w
 
+        outline_color = "#7fc8c8" if outgoing else "#bbbbbb"
         rect_id = self.canvas.create_rectangle(
-            x1, y, x2, y + bubble_h, fill=bubble_color, outline="#bbbbbb", width=1, tags=("msg",)
+            x1, y, x2, y + bubble_h, fill=bubble_color, outline=outline_color, width=1, tags=("msg",)
         )
         text_id = self.canvas.create_text(
             x1 + pad, y + pad, text=full_text, font=("Tahoma", 10),
@@ -201,6 +200,8 @@ class ChatView(tk.Frame):
         status_icon = ""
         if msg.get("status") == "pending":
             status_icon = " ⏳"
+        elif outgoing and msg.get("status") == "read":
+            status_icon = " ✔✔"
         elif outgoing and msg.get("status") == "sent":
             status_icon = " ✔"
 
@@ -231,7 +232,7 @@ class ChatView(tk.Frame):
         cy = self.canvas.canvasy(event.y)
         for x1, y1, x2, y2, msg, outgoing in self._registry:
             if x1 <= cx <= x2 and y1 <= cy <= y2:
-                if outgoing and msg.get("status") == "sent" and msg.get("type") in ("text", "file"):
+                if outgoing and msg.get("status") in ("sent", "read", "pending") and msg.get("type") in ("text", "file"):
                     menu = tk.Menu(self, tearoff=0)
                     menu.add_command(
                         label="🚫 لغو ارسال / حذف برای همه",

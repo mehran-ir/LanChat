@@ -21,6 +21,9 @@ import persistence
 from chatmodel import ChatEntry, make_message, new_id
 from chatview import ChatView
 from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR
+from emoji_render import get_emoji_icon
+import winemoji
+import taskbar_badge
 
 EMOJIS = [
     "😀", "😂", "😍", "👍", "👎", "🙏", "🎉", "❤️",
@@ -75,6 +78,7 @@ class LANChatApp:
 
         self.root.bind("<FocusIn>", lambda e: setattr(self, "_has_focus", True))
         self.root.bind("<FocusOut>", lambda e: setattr(self, "_has_focus", False))
+        self.root.after(500, self._update_taskbar_badge)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---------------------------------------------------------------- UI ---
@@ -128,6 +132,7 @@ class LANChatApp:
         self.contact_listbox = tk.Listbox(left, font=("Tahoma", 10), activestyle="dotbox")
         self.contact_listbox.pack(fill="both", expand=True)
         self.contact_listbox.bind("<<ListboxSelect>>", self._on_select_contact)
+        self.contact_listbox.bind("<Button-3>", self._on_contact_right_click)
 
         btns = ttk.Frame(left)
         btns.pack(fill="x", pady=6)
@@ -172,7 +177,12 @@ class LANChatApp:
         bottom = ttk.Frame(right)
         bottom.pack(fill="x", pady=(8, 0))
 
-        self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker)
+        emoji_btn_icon = get_emoji_icon("😊", size=18)
+        if emoji_btn_icon:
+            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker)
+            self.emoji_btn.image = emoji_btn_icon  # جلوگیری از garbage collection تصویر
+        else:
+            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker)
         self.emoji_btn.pack(side="left")
 
         self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file)
@@ -295,6 +305,11 @@ class LANChatApp:
             notify_needed = True
             notify_title = f"بازر از {from_name}"
             notify_body = "🔔 بازر دریافت شد"
+        elif msg_type == "read":
+            id_set = set(header.get("message_ids") or [])
+            for m in chat.messages:
+                if m.get("outgoing") and m.get("id") in id_set and m.get("status") == "sent":
+                    m["status"] = "read"
         else:
             return
 
@@ -304,6 +319,7 @@ class LANChatApp:
         else:
             if notify_needed:
                 chat.unread += 1
+                self._update_taskbar_badge()
             self._save_state()
             self._refresh_contact_list()
 
@@ -455,6 +471,58 @@ class LANChatApp:
             return None
         return self.contacts.get(self.selected_key) or self.groups.get(self.selected_key)
 
+    def _on_contact_right_click(self, event):
+        index = self.contact_listbox.nearest(event.y)
+        if index < 0 or index >= len(self._contact_keys_in_order):
+            return
+        # فقط اگر کلیک واقعاً روی محدوده یک ردیف موجود بوده باشد
+        bbox = self.contact_listbox.bbox(index)
+        if not bbox:
+            return
+        key = self._contact_keys_in_order[index]
+        chat = self.contacts.get(key) or self.groups.get(key)
+        if not chat or not chat.is_group:
+            return  # منوی کلیک راست فقط برای گروه‌ها فعال است
+
+        self.contact_listbox.selection_clear(0, "end")
+        self.contact_listbox.selection_set(index)
+
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="✏️ ویرایش نام گروه", command=lambda: self._on_rename_group(chat))
+        menu.add_command(label="🗑 حذف گروه", command=lambda: self._on_delete_group(chat))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _on_rename_group(self, chat):
+        new_name = simpledialog.askstring(
+            "ویرایش نام گروه", "نام جدید گروه را وارد کنید:",
+            initialvalue=chat.name, parent=self.root,
+        )
+        if not new_name or not new_name.strip():
+            return
+        chat.name = new_name.strip()
+        self._save_state()
+        self._refresh_contact_list()
+        if self.selected_key == chat.key:
+            self.chat_title.config(text=f"👥 گروه: {chat.name}")
+
+    def _on_delete_group(self, chat):
+        if not messagebox.askyesno(
+            "حذف گروه",
+            f"آیا از حذف گروه «{chat.name}» مطمئن هستید؟\n"
+            "این کار فقط گروه را از این دستگاه حذف می‌کند (تاریخچه گفتگوی آن هم پاک می‌شود).",
+        ):
+            return
+        self.groups.pop(chat.key, None)
+        if self.selected_key == chat.key:
+            self.selected_key = None
+            self.chat_title.config(text="یک کامپیوتر یا گروه را انتخاب کنید")
+            self.chatview.clear()
+        self._save_state()
+        self._refresh_contact_list()
+
     def _on_select_contact(self, event):
         sel = self.contact_listbox.curselection()
         if not sel:
@@ -470,8 +538,47 @@ class LANChatApp:
         if chat.unread > 0:
             chat.unread = 0
             self._save_state()
+            self._update_taskbar_badge()
+        self._send_read_receipts(chat)
         self._render_selected()
         self._refresh_contact_list()
+
+    def _target_for_sender_ip(self, chat, sender_ip):
+        if chat.is_group:
+            for m in chat.members:
+                if m.get("ip") == sender_ip:
+                    return (m["ip"], m.get("port", TCP_PORT))
+            return None
+        return (chat.ip, chat.port)
+
+    def _send_read_receipts(self, chat):
+        """برای پیام‌های دریافتی‌ای که هنوز رسید خوانده‌شدن برایشان ارسال نشده، به فرستنده اطلاع می‌دهد"""
+        pending = [
+            m for m in chat.messages
+            if not m.get("outgoing") and m.get("type") in ("text", "file")
+            and m.get("status") == "sent" and not m.get("_read_sent")
+        ]
+        if not pending:
+            return
+
+        by_sender = {}
+        for m in pending:
+            by_sender.setdefault(m.get("sender_ip"), []).append(m["id"])
+            m["_read_sent"] = True
+        self._save_state()
+
+        def worker():
+            for sender_ip, ids in by_sender.items():
+                target = self._target_for_sender_ip(chat, sender_ip)
+                if not target:
+                    continue
+                try:
+                    client.send_read(target[0], target[1], self.my_name, ids,
+                                      group_id=chat.key if chat.is_group else None)
+                except Exception:
+                    pass
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _render_selected(self):
         chat = self._get_selected_chat()
@@ -576,7 +683,7 @@ class LANChatApp:
             return
         if msg.get("status") == "pending":
             self._cancel_pending(chat, msg)
-        elif msg.get("status") == "sent":
+        elif msg.get("status") in ("sent", "read"):
             self._recall_sent_message(chat, msg)
 
     def _cancel_pending(self, chat, msg):
@@ -703,6 +810,14 @@ class LANChatApp:
 
     # ----------------------------------------------------------- EMOJI ---
     def _open_emoji_picker(self):
+        self.msg_entry.focus_set()
+        if winemoji.IS_WINDOWS and winemoji.open_windows_emoji_panel():
+            # پنل رسمی و رنگی ایموجی ویندوز باز شد؛ ایموجی انتخابی کاربر مستقیماً
+            # در باکس تایپ پیام (msg_entry) که همین الان فوکوس گرفته، درج می‌شود
+            return
+        self._open_fallback_emoji_popup()
+
+    def _open_fallback_emoji_popup(self):
         popup = tk.Toplevel(self.root)
         popup.title("ایموجی")
         popup.resizable(False, False)
@@ -710,10 +825,18 @@ class LANChatApp:
         frame = tk.Frame(popup, padx=6, pady=6)
         frame.pack()
         cols = 8
+        icon_refs = []
         for i, em in enumerate(EMOJIS):
-            b = tk.Button(frame, text=em, font=("Segoe UI Emoji", 14), width=2,
-                          command=lambda e=em: self._insert_emoji(e, popup))
+            icon = get_emoji_icon(em, size=28)
+            if icon:
+                b = tk.Button(frame, image=icon, width=36, height=36,
+                              command=lambda e=em: self._insert_emoji(e, popup))
+                icon_refs.append(icon)
+            else:
+                b = tk.Button(frame, text=em, font=("Segoe UI Emoji", 14), width=2,
+                              command=lambda e=em: self._insert_emoji(e, popup))
             b.grid(row=i // cols, column=i % cols, padx=2, pady=2)
+        popup._icon_refs = icon_refs  # جلوگیری از garbage collection تا زمانی که پاپ‌آپ باز است
 
     def _insert_emoji(self, emoji, popup):
         self.msg_entry.insert(tk.INSERT, emoji)
@@ -803,6 +926,14 @@ class LANChatApp:
                 notify.show_notification(title, message, hwnd)
             except Exception:
                 pass
+
+    def _update_taskbar_badge(self):
+        try:
+            total = sum(c.unread for c in self.contacts.values()) + sum(c.unread for c in self.groups.values())
+            hwnd = self.root.winfo_id()
+            taskbar_badge.set_badge(hwnd, total)
+        except Exception:
+            pass
 
     def _save_state(self):
         data = {

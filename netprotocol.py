@@ -79,6 +79,13 @@ def send_recall(sock: socket.socket, from_name: str, target_id: str, group_id: s
     _send_header_only(sock, header)
 
 
+def send_read(sock: socket.socket, from_name: str, message_ids: list, group_id: str = None):
+    header = {"type": "read", "from": from_name, "message_ids": message_ids}
+    if group_id:
+        header["group_id"] = group_id
+    _send_header_only(sock, header)
+
+
 def send_buzz(sock: socket.socket, from_name: str, group_id: str = None):
     header = {"type": "buzz", "from": from_name}
     if group_id:

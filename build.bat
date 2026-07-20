@@ -13,12 +13,12 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/3] نصب PyInstaller و Pillow ...
-pip install --upgrade pyinstaller pillow
+echo [1/3] نصب PyInstaller و Pillow و comtypes ...
+pip install --upgrade pyinstaller pillow comtypes
 
 echo.
 echo [2/3] ساخت فایل exe ...
-pyinstaller --onefile --windowed --name "LanChat by MGH" main.py
+pyinstaller --onefile --windowed --name "LanChat by MGH" --hidden-import=comtypes.stream --collect-submodules comtypes main.py
 
 echo.
 echo [3/3] پایان.
