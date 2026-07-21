@@ -21,7 +21,6 @@ from chatmodel import ChatEntry, make_message, new_id
 from chatview import ChatView
 from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR
 from emoji_render import get_emoji_icon
-import winemoji
 import taskbar_badge
 
 EMOJIS = [
@@ -47,12 +46,7 @@ STATE_PATH = os.path.join(BASE_DIR, "lanchat_data.json")
 class LANChatApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.my_name = get_hostname()
         self.my_ip = get_local_ip()
-
-        self.root.title(f"LanChat by MGH - {self.my_name}")
-        self.root.geometry("980x620")
-        self.root.minsize(760, 480)
 
         os.makedirs(RECEIVED_DIR, exist_ok=True)
         os.makedirs(BACKGROUNDS_DIR, exist_ok=True)
@@ -62,6 +56,22 @@ class LANChatApp:
         self.groups = {k: ChatEntry.from_dict(v) for k, v in raw_state.get("groups", {}).items()}
         self.theme_color = raw_state.get("settings", {}).get("theme_color", DEFAULT_THEME)
         self.chatbox_color = raw_state.get("settings", {}).get("chatbox_color", DEFAULT_CHATBOX_COLOR)
+
+        saved_name = raw_state.get("settings", {}).get("display_name")
+        if saved_name:
+            self.my_name = saved_name
+        else:
+            # اولین اجرای برنامه: از کاربر نام دلخواه‌اش را می‌پرسیم
+            entered = simpledialog.askstring(
+                "خوش آمدید به LanChat by MGH",
+                "نام خود را برای نمایش به دیگران در شبکه وارد کنید:",
+                initialvalue=get_hostname(), parent=self.root,
+            )
+            self.my_name = (entered or "").strip() or get_hostname()
+
+        self.root.title(f"LanChat by MGH - {self.my_name}")
+        self.root.geometry("980x620")
+        self.root.minsize(760, 480)
 
         self.selected_key = None
         self.incoming_queue = queue.Queue()
@@ -74,6 +84,7 @@ class LANChatApp:
         self._start_networking()
         self._poll_queue()
         self._update_clock()
+        self._save_state()  # نام تعیین‌شده (پیش‌فرض یا وارد‌شده) را از همین اول ذخیره می‌کنیم
 
         self.root.bind("<FocusIn>", lambda e: setattr(self, "_has_focus", True))
         self.root.bind("<FocusOut>", lambda e: setattr(self, "_has_focus", False))
@@ -102,10 +113,13 @@ class LANChatApp:
         # --- سمت راست: نام کامپیوتر + دکمه دایره‌ای انتخاب تم ---
         right_top = ttk.Frame(top_bar)
         right_top.pack(side="right")
-        ttk.Label(
+        self.my_name_label = ttk.Label(
             right_top, text=f"این کامپیوتر: {self.my_name}   ({self.my_ip})",
             font=("Tahoma", 10, "bold"),
-        ).pack(side="right", padx=(8, 0))
+        )
+        self.my_name_label.pack(side="right", padx=(8, 0))
+
+        ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self).pack(side="right", padx=(4, 0))
 
         self.theme_btn_canvas = tk.Canvas(right_top, width=30, height=30, highlightthickness=0)
         self.theme_btn_canvas.pack(side="right")
@@ -216,7 +230,7 @@ class LANChatApp:
     def _start_networking(self):
         self._stop_event = threading.Event()
         self.responder_thread = threading.Thread(
-            target=start_responder, args=(TCP_PORT, self._stop_event), daemon=True
+            target=start_responder, args=(TCP_PORT, self._stop_event, lambda: self.my_name), daemon=True
         )
         self.responder_thread.start()
 
@@ -226,13 +240,14 @@ class LANChatApp:
         )
         self.server.start()
 
-        # broadcast فقط با کلیک دستی روی «اسکن شبکه» انجام می‌شود، نه به‌صورت خودکار،
-        # تا پهنای باند شبکه بدون درخواست کاربر درگیر نشود.
+        # broadcast به‌صورت پیش‌فرض فقط با کلیک دستی روی «اسکن شبکه» انجام می‌شود،
+        # تا پهنای باند شبکه بدون درخواست کاربر درگیر نشود — با یک استثنا:
+        # فقط در همان اولین اجرای برنامه (وقتی هنوز هیچ لیستی ذخیره نشده) یک اسکن
+        # خودکار انجام می‌شود تا کاربر مجبور نباشد برای شروع کار دستی کلیک کند.
         self._refresh_contact_list()
         if not self.contacts and not self.groups:
-            self.status_label.config(
-                text="برای پیدا کردن کامپیوترها روی «اسکن شبکه» بزنید", foreground="#b46a00"
-            )
+            self.status_label.config(text="در حال اسکن اولیه شبکه...", foreground="#b46a00")
+            self.root.after(400, self._on_scan_clicked)
 
     def _on_message_received_threadsafe(self, header):
         self.incoming_queue.put(header)
@@ -353,7 +368,7 @@ class LANChatApp:
         self.status_label.config(text="در حال اسکن شبکه...", foreground="#b46a00")
 
         def worker():
-            found = scan_network(TCP_PORT, timeout=2.5)
+            found = scan_network(TCP_PORT, timeout=2.5, display_name=self.my_name)
             self.root.after(0, lambda: self._on_scan_done(found))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -380,7 +395,7 @@ class LANChatApp:
         self.status_label.config(text=f"در حال بررسی {ip} ...", foreground="#b46a00")
 
         def worker():
-            info = probe_single_ip(ip, TCP_PORT, timeout=2.5)
+            info = probe_single_ip(ip, TCP_PORT, timeout=2.5, display_name=self.my_name)
             self.root.after(0, lambda: self._on_probe_done(ip, info))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -493,6 +508,18 @@ class LANChatApp:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _on_rename_self(self):
+        new_name = simpledialog.askstring(
+            "ویرایش نام نمایشی", "نام جدیدی که دیگران در شبکه شما را با آن ببینند:",
+            initialvalue=self.my_name, parent=self.root,
+        )
+        if not new_name or not new_name.strip():
+            return
+        self.my_name = new_name.strip()
+        self.root.title(f"LanChat by MGH - {self.my_name}")
+        self.my_name_label.config(text=f"این کامپیوتر: {self.my_name}   ({self.my_ip})")
+        self._save_state()
 
     def _on_rename_group(self, chat):
         new_name = simpledialog.askstring(
@@ -607,7 +634,7 @@ class LANChatApp:
         chat.messages.append(msg)
         self._render_if_open(chat)
 
-        job = self.root.after(3000, lambda: self._actually_send_message(chat, msg))
+        job = self.root.after(1000, lambda: self._actually_send_message(chat, msg))
         self.pending_sends[msg_id] = job
 
     def _actually_send_message(self, chat, msg):
@@ -645,7 +672,7 @@ class LANChatApp:
         chat.messages.append(msg)
         self._render_if_open(chat)
 
-        job = self.root.after(3000, lambda: self._actually_send_file(chat, msg, filepath))
+        job = self.root.after(1000, lambda: self._actually_send_file(chat, msg, filepath))
         self.pending_sends[msg_id] = job
 
     def _actually_send_file(self, chat, msg, filepath):
@@ -809,11 +836,10 @@ class LANChatApp:
 
     # ----------------------------------------------------------- EMOJI ---
     def _open_emoji_picker(self):
-        self.msg_entry.focus_set()
-        if winemoji.IS_WINDOWS and winemoji.open_windows_emoji_panel():
-            # پنل رسمی و رنگی ایموجی ویندوز باز شد؛ ایموجی انتخابی کاربر مستقیماً
-            # در باکس تایپ پیام (msg_entry) که همین الان فوکوس گرفته، درج می‌شود
-            return
+        # از شبیه‌سازی کلید سیستمی Win+. صرف‌نظر شد: چون در سطح کل سیستم‌عامل تزریق
+        # می‌شد، می‌توانست با فوکوس/IME باکس پیام تداخل کند و باعث پاک شدن پیام هنگام
+        # ارسال شود. به‌جای آن همیشه از پاپ‌آپ داخلی (که کاملاً در کنترل خود برنامه و
+        # قابل‌اعتماد است) استفاده می‌کنیم؛ ایموجی‌ها همچنان رنگی نمایش داده می‌شوند.
         self._open_fallback_emoji_popup()
 
     def _open_fallback_emoji_popup(self):
@@ -1026,7 +1052,11 @@ class LANChatApp:
         data = {
             "contacts": {k: c.to_dict() for k, c in self.contacts.items()},
             "groups": {k: c.to_dict() for k, c in self.groups.items()},
-            "settings": {"theme_color": self.theme_color, "chatbox_color": self.chatbox_color},
+            "settings": {
+                "theme_color": self.theme_color,
+                "chatbox_color": self.chatbox_color,
+                "display_name": self.my_name,
+            },
         }
         persistence.save_state(STATE_PATH, data)
 

@@ -28,6 +28,28 @@ def get_local_ip() -> str:
     return ip
 
 
+def get_all_local_ips() -> list:
+    """
+    آی‌پی تمام کارت‌های شبکه فعال کامپیوتر را برمی‌گرداند (نه فقط اینترفیس پیش‌فرض).
+    این برای کامپیوترهایی که چند کارت شبکه دارند (مثلاً هم Wi-Fi هم اترنت، یا
+    آداپتور مجازی VPN/VMware/Hyper-V) مهم است تا Broadcast از همه فرستاده شود.
+    """
+    ips = set()
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127."):
+                ips.add(ip)
+    except Exception:
+        pass
+    try:
+        ips.add(get_local_ip())
+    except Exception:
+        pass
+    return list(ips) if ips else ["0.0.0.0"]
+
+
 def get_broadcast_addresses() -> list:
     """
     تلاش برای یافتن آدرس broadcast شبکه‌های محلی متصل.
