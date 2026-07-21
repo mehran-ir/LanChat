@@ -15,7 +15,6 @@ from discovery import start_responder, scan_network, probe_single_ip
 from server import ChatServer, TCP_PORT
 import client
 import jalali
-import notify
 import soundfx
 import persistence
 from chatmodel import ChatEntry, make_message, new_id
@@ -324,7 +323,7 @@ class LANChatApp:
             self._refresh_contact_list()
 
         if notify_needed:
-            self._maybe_notify(notify_title, notify_body)
+            self._maybe_notify(notify_title, notify_body, chat.key)
 
     def _merge_group_members(self, chat, members_list):
         if not members_list:
@@ -919,13 +918,101 @@ class LANChatApp:
         except Exception:
             return not self._has_focus
 
-    def _maybe_notify(self, title, message):
+    def _maybe_notify(self, title, message, chat_key=None):
         if self._is_minimized_or_unfocused():
             try:
-                hwnd = self.root.winfo_id()
-                notify.show_notification(title, message, hwnd)
+                self._show_toast(title, message, chat_key)
             except Exception:
                 pass
+
+    def _show_toast(self, title, message, chat_key):
+        """
+        یک نوتیفیکیشن داخلی و قابل‌کلیک گوشه پایین-راست صفحه نمایش می‌دهد.
+        برخلاف بالن رسمی ویندوز، چون این یک پنجره واقعی Tkinter است، کلیک روی آن
+        همیشه به‌طور کامل و مطمئن قابل تشخیص است.
+        """
+        if getattr(self, "_active_toast", None):
+            try:
+                if self._active_toast.winfo_exists():
+                    self._active_toast.destroy()
+            except Exception:
+                pass
+
+        toast = tk.Toplevel(self.root)
+        self._active_toast = toast
+        toast.overrideredirect(True)
+        toast.attributes("-topmost", True)
+        try:
+            toast.attributes("-alpha", 0.97)
+        except Exception:
+            pass
+
+        width, height = 320, 92
+        screen_w = toast.winfo_screenwidth()
+        screen_h = toast.winfo_screenheight()
+        x = screen_w - width - 18
+        y = screen_h - height - 60
+        toast.geometry(f"{width}x{height}+{x}+{y}")
+
+        outer = tk.Frame(toast, bg="#cccccc")
+        outer.pack(fill="both", expand=True)
+        frame = tk.Frame(outer, bg="#ffffff")
+        frame.pack(fill="both", expand=True, padx=1, pady=1)
+
+        tk.Label(
+            frame, text=title, font=("Tahoma", 10, "bold"), bg="#ffffff", fg="#111111",
+            anchor="e", justify="right", wraplength=width - 24,
+        ).pack(fill="x", padx=12, pady=(10, 2))
+        tk.Label(
+            frame, text=(message or "")[:150], font=("Tahoma", 9), bg="#ffffff", fg="#333333",
+            anchor="e", justify="right", wraplength=width - 24,
+        ).pack(fill="x", padx=12)
+        tk.Label(
+            frame, text="برای مشاهده کلیک کنید ✕ برای بستن", font=("Tahoma", 7), bg="#ffffff", fg="#999999",
+            anchor="e", justify="right",
+        ).pack(fill="x", padx=12, pady=(4, 0))
+
+        def on_click(_event=None):
+            self._focus_and_open_chat(chat_key)
+            try:
+                toast.destroy()
+            except Exception:
+                pass
+
+        for widget in [toast, outer, frame] + list(frame.winfo_children()):
+            widget.bind("<Button-1>", on_click)
+            try:
+                widget.configure(cursor="hand2")
+            except Exception:
+                pass
+
+        toast.after(6000, lambda: toast.destroy() if toast.winfo_exists() else None)
+
+    def _focus_and_open_chat(self, chat_key):
+        """پنجره برنامه را از حالت Minimize/بدون‌فوکوس خارج و به گفتگوی مشخص‌شده می‌رود"""
+        try:
+            self.root.deiconify()
+            self.root.state("normal")
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(150, lambda: self.root.attributes("-topmost", False))
+            self.root.focus_force()
+        except Exception:
+            pass
+
+        chat = self.contacts.get(chat_key) or self.groups.get(chat_key)
+        if not chat:
+            return
+        self.selected_key = chat_key
+        title = f"👥 گروه: {chat.name}" if chat.is_group else f"گفتگو با {chat.name} ({chat.ip})"
+        self.chat_title.config(text=title)
+        if chat.unread > 0:
+            chat.unread = 0
+            self._save_state()
+            self._update_taskbar_badge()
+        self._send_read_receipts(chat)
+        self._render_selected()
+        self._refresh_contact_list()
 
     def _update_taskbar_badge(self):
         try:

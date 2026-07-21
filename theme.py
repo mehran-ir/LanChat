@@ -3,14 +3,14 @@
 پالت رنگی برنامه و محاسبه رنگ متن مناسب (روشن/تیره) بر اساس روشنایی پس‌زمینه
 """
 
-DEFAULT_THEME = "#E0FFFF"
-THEME_OPTIONS = ["#E0FFFF", "#FFDDF4", "#010B13", "#ACE1AF"]
+DEFAULT_THEME = "#F5F5F5"
+THEME_OPTIONS = ["#F5F5F5", "#FFDDF4", "#010B13", "#ACE1AF"]
 
-# رنگ پیش‌فرض خود باکس نمایش گفتگو — عمداً از رنگ زمینه کلی برنامه متفاوت است
-DEFAULT_CHATBOX_COLOR = "#F0F8FF"
+# رنگ پیش‌فرض خود باکس نمایش گفتگو — سفید
+DEFAULT_CHATBOX_COLOR = "#FFFFFF"
 
 THEME_NAMES = {
-    "#E0FFFF": "آبی روشن (پیش‌فرض)",
+    "#F5F5F5": "خاکستری روشن (پیش‌فرض)",
     "#FFDDF4": "صورتی",
     "#010B13": "تیره",
     "#ACE1AF": "سبز",
