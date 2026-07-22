@@ -19,7 +19,7 @@ import soundfx
 import persistence
 from chatmodel import ChatEntry, make_message, new_id
 from chatview import ChatView
-from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR
+from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR, BUTTON_PALETTE, shade
 from emoji_render import get_emoji_icon
 import taskbar_badge
 import tray_icon
@@ -57,6 +57,7 @@ class LANChatApp:
         self.groups = {k: ChatEntry.from_dict(v) for k, v in raw_state.get("groups", {}).items()}
         self.theme_color = raw_state.get("settings", {}).get("theme_color", DEFAULT_THEME)
         self.chatbox_color = raw_state.get("settings", {}).get("chatbox_color", DEFAULT_CHATBOX_COLOR)
+        self.notifications_enabled = raw_state.get("settings", {}).get("notifications_enabled", True)
 
         saved_name = raw_state.get("settings", {}).get("display_name")
         if saved_name:
@@ -107,6 +108,7 @@ class LANChatApp:
             style.theme_use("clam")
         except Exception:
             pass
+        self._configure_button_styles(style)
 
         top_bar = ttk.Frame(self.root, padding=8)
         top_bar.pack(side="top", fill="x")
@@ -128,7 +130,11 @@ class LANChatApp:
         )
         self.my_name_label.pack(side="right", padx=(8, 0))
 
-        ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self).pack(side="right", padx=(4, 0))
+        ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self, style="Neutral.TButton").pack(side="right", padx=(4, 0))
+
+        self.notif_toggle_btn = ttk.Button(right_top, width=3, command=self._toggle_notifications, style="Pink.TButton")
+        self.notif_toggle_btn.pack(side="right", padx=(4, 0))
+        self._update_notif_toggle_button()
 
         self.theme_btn_canvas = tk.Canvas(right_top, width=30, height=30, highlightthickness=0)
         self.theme_btn_canvas.pack(side="right")
@@ -158,11 +164,11 @@ class LANChatApp:
 
         btns = ttk.Frame(left)
         btns.pack(fill="x", pady=6)
-        ttk.Button(btns, text="اسکن شبکه", command=self._on_scan_clicked).pack(side="right", expand=True, fill="x", padx=2)
-        ttk.Button(btns, text="افزودن دستی", command=self._on_add_manual).pack(side="right", expand=True, fill="x", padx=2)
+        ttk.Button(btns, text="اسکن شبکه", command=self._on_scan_clicked, style="Primary.TButton").pack(side="right", expand=True, fill="x", padx=2)
+        ttk.Button(btns, text="افزودن دستی", command=self._on_add_manual, style="Info.TButton").pack(side="right", expand=True, fill="x", padx=2)
 
-        ttk.Button(left, text="👥 ایجاد گروه جدید", command=self._on_create_group).pack(fill="x", pady=(0, 4))
-        ttk.Button(left, text="باز کردن پوشه فایل‌های دریافتی", command=self._open_received_folder).pack(fill="x")
+        ttk.Button(left, text="👥 ایجاد گروه جدید", command=self._on_create_group, style="Purple.TButton").pack(fill="x", pady=(0, 4))
+        ttk.Button(left, text="باز کردن پوشه فایل‌های دریافتی", command=self._open_received_folder, style="Neutral.TButton").pack(fill="x")
 
         self.status_label = ttk.Label(left, text="آماده", foreground=self._status_color("success"))
         self.status_label.pack(fill="x", pady=(8, 0))
@@ -177,11 +183,11 @@ class LANChatApp:
         toolbar = ttk.Frame(right)
         toolbar.pack(fill="x", pady=(0, 4))
 
-        ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members).pack(side="right", padx=2)
-        ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history).pack(side="right", padx=2)
-        ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz).pack(side="right", padx=2)
-        ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg).pack(side="right", padx=2)
-        ttk.Button(toolbar, text="حذف پس‌زمینه", command=self._on_remove_chat_bg).pack(side="right", padx=2)
+        ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members, style="Purple.TButton").pack(side="right", padx=2)
+        ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history, style="Danger.TButton").pack(side="right", padx=2)
+        ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz, style="Warning.TButton").pack(side="right", padx=2)
+        ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg, style="Purple.TButton").pack(side="right", padx=2)
+        ttk.Button(toolbar, text="حذف پس‌زمینه", command=self._on_remove_chat_bg, style="Neutral.TButton").pack(side="right", padx=2)
 
         self.chat_search_var = tk.StringVar()
         chat_search_entry = ttk.Entry(toolbar, textvariable=self.chat_search_var, justify="right", width=22)
@@ -201,7 +207,7 @@ class LANChatApp:
         self.reply_bar = ttk.Frame(right)
         self.reply_bar_label = ttk.Label(self.reply_bar, text="", anchor="e", justify="right")
         self.reply_bar_label.pack(side="right", fill="x", expand=True, padx=(4, 8))
-        ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply).pack(side="left")
+        ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply, style="Neutral.TButton").pack(side="left")
         self._reply_target = None
         # self.reply_bar تا زمانی که پاسخ فعال نشده pack نمی‌شود
 
@@ -211,16 +217,16 @@ class LANChatApp:
 
         emoji_btn_icon = get_emoji_icon("😊", size=18)
         if emoji_btn_icon:
-            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker)
+            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker, style="Pink.TButton")
             self.emoji_btn.image = emoji_btn_icon  # جلوگیری از garbage collection تصویر
         else:
-            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker)
+            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker, style="Pink.TButton")
         self.emoji_btn.pack(side="left")
 
-        self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file)
+        self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file, style="Info.TButton")
         self.file_btn.pack(side="left", padx=(4, 0))
 
-        self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message)
+        self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Success.TButton")
         self.send_btn.pack(side="right")
 
         self.msg_entry = ttk.Entry(bottom, font=("Tahoma", 10), justify="right")
@@ -307,6 +313,7 @@ class LANChatApp:
                 if ip not in known_ips:
                     return
                 self._merge_group_members(chat, header.get("members") or [])
+                self._sync_member_name(chat, ip, from_name)
         else:
             chat = self._find_or_create_single_contact(ip, from_name)
 
@@ -367,15 +374,31 @@ class LANChatApp:
     def _merge_group_members(self, chat, members_list):
         if not members_list:
             return
-        known_ips = {m["ip"] for m in chat.members}
-        known_ips.add(self.my_ip)
+        by_ip = {m["ip"]: m for m in chat.members}
         changed = False
         for m in members_list:
-            if m.get("ip") and m["ip"] not in known_ips:
+            ip = m.get("ip")
+            if not ip or ip == self.my_ip:
+                continue
+            new_name = m.get("name")
+            if ip not in by_ip:
                 chat.members.append(m)
-                known_ips.add(m["ip"])
+                by_ip[ip] = m
+                changed = True
+            elif new_name and by_ip[ip].get("name") != new_name:
+                by_ip[ip]["name"] = new_name
                 changed = True
         return changed
+
+    def _sync_member_name(self, chat, ip, name):
+        """نام یک عضو گروه را در صورت تغییر، در لیست اعضای همان گروه به‌روزرسانی می‌کند"""
+        if not chat.is_group or not name:
+            return False
+        for m in chat.members:
+            if m.get("ip") == ip and m.get("name") != name:
+                m["name"] = name
+                return True
+        return False
 
     def _find_or_create_single_contact(self, ip, from_name):
         for c in self.contacts.values():
@@ -486,7 +509,7 @@ class LANChatApp:
             self._refresh_contact_list()
             dlg.destroy()
 
-        ttk.Button(dlg, text="ایجاد گروه", command=confirm).pack(pady=10)
+        ttk.Button(dlg, text="ایجاد گروه", command=confirm, style="Success.TButton").pack(pady=10)
 
     def _refresh_contact_list(self):
         filter_text = self._real_text_by_var(self.contact_search_var).strip().lower()
@@ -544,9 +567,14 @@ class LANChatApp:
 
         listbox.insert("end", f"👤 {self.my_name} (شما)   —   {self.my_ip}")
         for m in chat.members:
-            listbox.insert("end", f"👤 {m.get('name', '؟')}   —   {m.get('ip', '؟')}")
+            name = m.get("name") or ""
+            ip = m.get("ip", "؟")
+            if not name or name == ip:
+                listbox.insert("end", f"👤 (نام هنوز دریافت نشده)   —   {ip}")
+            else:
+                listbox.insert("end", f"👤 {name}   —   {ip}")
 
-        ttk.Button(dlg, text="بستن", command=dlg.destroy).pack(pady=(0, 10))
+        ttk.Button(dlg, text="بستن", command=dlg.destroy, style="Neutral.TButton").pack(pady=(0, 10))
 
     def _on_contact_right_click(self, event):
         index = self.contact_listbox.nearest(event.y)
@@ -947,11 +975,13 @@ class LANChatApp:
         for i, em in enumerate(EMOJIS):
             icon = get_emoji_icon(em, size=28)
             if icon:
-                b = tk.Button(frame, image=icon, width=36, height=36,
+                b = tk.Button(frame, image=icon, width=36, height=36, bg="#fce4ec",
+                              activebackground="#f8bbd0", relief="flat",
                               command=lambda e=em: self._insert_emoji(e, popup))
                 icon_refs.append(icon)
             else:
-                b = tk.Button(frame, text=em, font=("Segoe UI Emoji", 14), width=2,
+                b = tk.Button(frame, text=em, font=("Segoe UI Emoji", 14), width=2, bg="#fce4ec",
+                              activebackground="#f8bbd0", relief="flat",
                               command=lambda e=em: self._insert_emoji(e, popup))
             b.grid(row=i // cols, column=i % cols, padx=2, pady=2)
         popup._icon_refs = icon_refs  # جلوگیری از garbage collection تا زمانی که پاپ‌آپ باز است
@@ -1002,6 +1032,22 @@ class LANChatApp:
             "error": "#ff6b6b" if is_dark_theme else "#c0392b",
         }
         return palette.get(kind, contrast_text_color(self.theme_color))
+
+    def _configure_button_styles(self, style):
+        """برای هر دسته از دکمه‌ها یک استایل رنگی جدا می‌سازد تا تمام دکمه‌های برنامه رنگی باشند"""
+        for key, color in BUTTON_PALETTE.items():
+            style_name = f"{key.capitalize()}.TButton"
+            hover = shade(color, -0.12)
+            pressed = shade(color, -0.22)
+            style.configure(
+                style_name, background=color, foreground="#ffffff",
+                padding=5, borderwidth=0, focusthickness=0,
+            )
+            style.map(
+                style_name,
+                background=[("active", hover), ("pressed", pressed), ("disabled", "#cccccc")],
+                foreground=[("disabled", "#eeeeee")],
+            )
 
     def _apply_theme_to_widgets(self):
         fg = contrast_text_color(self.theme_color)
@@ -1056,7 +1102,20 @@ class LANChatApp:
         except Exception:
             return not self._has_focus
 
+    def _toggle_notifications(self):
+        self.notifications_enabled = not self.notifications_enabled
+        self._update_notif_toggle_button()
+        self._save_state()
+
+    def _update_notif_toggle_button(self):
+        if self.notifications_enabled:
+            self.notif_toggle_btn.config(text="🔔")
+        else:
+            self.notif_toggle_btn.config(text="🔕")
+
     def _maybe_notify(self, title, message, chat_key=None):
+        if not self.notifications_enabled:
+            return
         if self._is_minimized_or_unfocused():
             try:
                 self._show_toast(title, message, chat_key)
@@ -1167,6 +1226,7 @@ class LANChatApp:
                 "theme_color": self.theme_color,
                 "chatbox_color": self.chatbox_color,
                 "display_name": self.my_name,
+                "notifications_enabled": self.notifications_enabled,
             },
         }
         persistence.save_state(STATE_PATH, data)
