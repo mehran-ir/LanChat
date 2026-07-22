@@ -30,12 +30,17 @@ def _send_header_only(sock: socket.socket, header: dict):
 
 
 def send_message(sock: socket.socket, from_name: str, text: str, msg_id: str,
-                  group_id: str = None, group_name: str = None, members: list = None):
+                  group_id: str = None, group_name: str = None, members: list = None,
+                  reply_to: str = None, reply_sender: str = None, reply_text: str = None):
     header = {"type": "msg", "from": from_name, "text": text, "id": msg_id}
     if group_id:
         header["group_id"] = group_id
         header["group_name"] = group_name
         header["members"] = members
+    if reply_to:
+        header["reply_to"] = reply_to
+        header["reply_sender"] = reply_sender
+        header["reply_text"] = reply_text
     _send_header_only(sock, header)
 
 

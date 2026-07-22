@@ -77,7 +77,8 @@ class ChatEntry:
 
 
 def make_message(msg_id, sender, sender_ip, msg_type, text=None, path=None,
-                  status="sent", outgoing=False, timestamp=None):
+                  status="sent", outgoing=False, timestamp=None,
+                  reply_to=None, reply_sender=None, reply_text=None):
     return {
         "id": msg_id,
         "sender": sender,
@@ -88,4 +89,7 @@ def make_message(msg_id, sender, sender_ip, msg_type, text=None, path=None,
         "status": status,       # 'pending' | 'sent' | 'failed' | 'recalled' | 'cancelled'
         "outgoing": outgoing,
         "timestamp": (timestamp or datetime.now()).isoformat(),
+        "reply_to": reply_to,           # id پیامی که به آن پاسخ داده شده (یا None)
+        "reply_sender": reply_sender,   # نام فرستنده همان پیام اصلی (برای نمایش پیش‌نمایش)
+        "reply_text": reply_text,       # خلاصه متن/نام‌فایل پیام اصلی (برای نمایش پیش‌نمایش)
     }

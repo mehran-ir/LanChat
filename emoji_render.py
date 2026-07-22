@@ -22,6 +22,61 @@ except Exception:
 _image_cache = {}
 _font_cache = {}
 
+_EMOJI_RANGES = (
+    (0x1F300, 0x1FAFF),  # پیکتوگرام‌ها، صورتک‌ها، حمل‌ونقل، نمادها
+    (0x2600, 0x27BF),    # نمادهای متفرقه و دینگبت
+    (0x1F1E6, 0x1F1FF),  # پرچم‌ها (حروف منطقه‌ای)
+    (0x1F900, 0x1F9FF),
+    (0x2190, 0x21FF),    # فلش‌ها (گاهی به‌صورت ایموجی استفاده می‌شوند)
+)
+_ZWJ = "\u200d"
+_VARIATION_SELECTOR = "\ufe0f"
+
+
+def _is_emoji_codepoint(cp: int) -> bool:
+    if cp in (ord(_ZWJ), ord(_VARIATION_SELECTOR)):
+        return True
+    for lo, hi in _EMOJI_RANGES:
+        if lo <= cp <= hi:
+            return True
+    return False
+
+
+def split_emoji_clusters(text: str):
+    """
+    متن را به «خوشه‌های» ایموجی می‌شکند؛ دنباله‌های به‌هم‌پیوسته با ZWJ (مثل ایموجی خانواده)
+    یا همراه با variation selector، یک خوشه واحد در نظر گرفته می‌شوند تا درست رندر شوند.
+    """
+    clusters = []
+    current = ""
+    for ch in text:
+        if ch == " ":
+            continue
+        if ch in (_ZWJ, _VARIATION_SELECTOR):
+            current += ch
+            continue
+        if current and current[-1] == _ZWJ:
+            current += ch
+            continue
+        if current:
+            clusters.append(current)
+        current = ch
+    if current:
+        clusters.append(current)
+    return clusters
+
+
+def is_emoji_only(text: str, max_clusters: int = 10) -> bool:
+    """آیا متن فقط شامل ایموجی است (و طول قابل قبولی دارد)؟"""
+    if not text or not text.strip():
+        return False
+    stripped = text.replace(" ", "")
+    for ch in stripped:
+        if not _is_emoji_codepoint(ord(ch)):
+            return False
+    clusters = split_emoji_clusters(text)
+    return 0 < len(clusters) <= max_clusters
+
 
 def _find_emoji_font_path():
     windir = os.environ.get("WINDIR", r"C:\Windows")

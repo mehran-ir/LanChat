@@ -14,13 +14,15 @@ from netprotocol import (
 
 
 def send_message(ip: str, port: int, from_name: str, text: str, msg_id: str,
-                  group_id=None, group_name=None, members=None, timeout: float = 5.0):
+                  group_id=None, group_name=None, members=None, timeout: float = 5.0,
+                  reply_to=None, reply_sender=None, reply_text=None):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
         sock.connect((ip, port))
         sock.settimeout(None)
-        _send_message(sock, from_name, text, msg_id, group_id, group_name, members)
+        _send_message(sock, from_name, text, msg_id, group_id, group_name, members,
+                      reply_to, reply_sender, reply_text)
     finally:
         sock.close()
 

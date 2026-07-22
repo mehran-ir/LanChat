@@ -177,6 +177,7 @@ class LANChatApp:
         toolbar = ttk.Frame(right)
         toolbar.pack(fill="x", pady=(0, 4))
 
+        ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members).pack(side="right", padx=2)
         ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history).pack(side="right", padx=2)
         ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz).pack(side="right", padx=2)
         ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg).pack(side="right", padx=2)
@@ -193,10 +194,19 @@ class LANChatApp:
         self.chatview = ChatView(
             right, on_recall=self._handle_recall_click, on_open_file=self._open_path,
             theme_color=self.theme_color, box_color=self.chatbox_color,
+            on_reply=self._start_reply,
         )
         self.chatview.pack(fill="both", expand=True)
 
+        self.reply_bar = ttk.Frame(right)
+        self.reply_bar_label = ttk.Label(self.reply_bar, text="", anchor="e", justify="right")
+        self.reply_bar_label.pack(side="right", fill="x", expand=True, padx=(4, 8))
+        ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply).pack(side="left")
+        self._reply_target = None
+        # self.reply_bar تا زمانی که پاسخ فعال نشده pack نمی‌شود
+
         bottom = ttk.Frame(right)
+        self._bottom_frame = bottom
         bottom.pack(fill="x", pady=(8, 0))
 
         emoji_btn_icon = get_emoji_icon("😊", size=18)
@@ -306,7 +316,9 @@ class LANChatApp:
 
         if msg_type == "msg":
             msg = make_message(header.get("id") or new_id(), from_name, ip, "text",
-                                text=header.get("text"), outgoing=False, status="sent")
+                                text=header.get("text"), outgoing=False, status="sent",
+                                reply_to=header.get("reply_to"), reply_sender=header.get("reply_sender"),
+                                reply_text=header.get("reply_text"))
             chat.messages.append(msg)
             notify_needed = True
             notify_body = header.get("text") or ""
@@ -505,6 +517,37 @@ class LANChatApp:
             return None
         return self.contacts.get(self.selected_key) or self.groups.get(self.selected_key)
 
+    def _chat_title_text(self, chat):
+        if chat.is_group:
+            count = len(chat.members) + 1  # +۱ برای خودم
+            return f"👥 گروه: {chat.name}  ({count} عضو)"
+        return f"گفتگو با {chat.name} ({chat.ip})"
+
+    def _on_show_group_members(self):
+        chat = self._get_selected_chat()
+        if not chat or not chat.is_group:
+            messagebox.showinfo("اعضای گروه", "ابتدا یک گروه را از لیست انتخاب کنید.")
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"اعضای گروه «{chat.name}»")
+        dlg.geometry("340x360")
+        dlg.transient(self.root)
+
+        ttk.Label(
+            dlg, text=f"گروه «{chat.name}» — {len(chat.members) + 1} عضو",
+            font=("Tahoma", 10, "bold"),
+        ).pack(anchor="e", padx=10, pady=(10, 6))
+
+        listbox = tk.Listbox(dlg, font=("Tahoma", 10))
+        listbox.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        listbox.insert("end", f"👤 {self.my_name} (شما)   —   {self.my_ip}")
+        for m in chat.members:
+            listbox.insert("end", f"👤 {m.get('name', '؟')}   —   {m.get('ip', '؟')}")
+
+        ttk.Button(dlg, text="بستن", command=dlg.destroy).pack(pady=(0, 10))
+
     def _on_contact_right_click(self, event):
         index = self.contact_listbox.nearest(event.y)
         if index < 0 or index >= len(self._contact_keys_in_order):
@@ -552,7 +595,7 @@ class LANChatApp:
         self._save_state()
         self._refresh_contact_list()
         if self.selected_key == chat.key:
-            self.chat_title.config(text=f"👥 گروه: {chat.name}")
+            self.chat_title.config(text=self._chat_title_text(chat))
 
     def _on_delete_group(self, chat):
         if not messagebox.askyesno(
@@ -578,9 +621,9 @@ class LANChatApp:
         chat = self._get_selected_chat()
         if not chat:
             return
-        title = f"👥 گروه: {chat.name}" if chat.is_group else f"گفتگو با {chat.name} ({chat.ip})"
-        self.chat_title.config(text=title)
+        self.chat_title.config(text=self._chat_title_text(chat))
         self.chat_search_var.set("")
+        self._cancel_reply()
         if chat.unread > 0:
             chat.unread = 0
             self._save_state()
@@ -649,13 +692,42 @@ class LANChatApp:
             return
         self.msg_entry.delete(0, "end")
 
+        reply_to = reply_sender = reply_text = None
+        if self._reply_target is not None:
+            r = self._reply_target
+            reply_to = r.get("id")
+            reply_sender = self.my_name if r.get("outgoing") else r.get("sender")
+            reply_text = r.get("text") if r.get("type") == "text" else (r.get("text") or "فایل")
+            self._cancel_reply()
+
         msg_id = new_id()
-        msg = make_message(msg_id, self.my_name, self.my_ip, "text", text=text, outgoing=True, status="pending")
+        msg = make_message(msg_id, self.my_name, self.my_ip, "text", text=text, outgoing=True, status="pending",
+                            reply_to=reply_to, reply_sender=reply_sender, reply_text=reply_text)
         chat.messages.append(msg)
         self._render_if_open(chat)
 
         job = self.root.after(1000, lambda: self._actually_send_message(chat, msg))
         self.pending_sends[msg_id] = job
+
+    def _start_reply(self, msg):
+        if msg.get("status") == "recalled":
+            return
+        self._reply_target = msg
+        preview_sender = self.my_name if msg.get("outgoing") else msg.get("sender", "")
+        preview_text = msg.get("text") or ("📎 فایل" if msg.get("type") == "file" else "")
+        preview_text = preview_text.replace("\n", " ")
+        if len(preview_text) > 60:
+            preview_text = preview_text[:60] + "…"
+        self.reply_bar_label.config(text=f"↩ در پاسخ به {preview_sender}: {preview_text}")
+        self.reply_bar.pack(fill="x", pady=(4, 0), before=self._bottom_frame)
+        self.msg_entry.focus_set()
+
+    def _cancel_reply(self):
+        self._reply_target = None
+        try:
+            self.reply_bar.pack_forget()
+        except Exception:
+            pass
 
     def _actually_send_message(self, chat, msg):
         self.pending_sends.pop(msg["id"], None)
@@ -668,6 +740,7 @@ class LANChatApp:
                         group_id=chat.key if chat.is_group else None,
                         group_name=chat.name if chat.is_group else None,
                         members=chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT) if chat.is_group else None,
+                        reply_to=msg.get("reply_to"), reply_sender=msg.get("reply_sender"), reply_text=msg.get("reply_text"),
                     )
                 msg["status"] = "sent"
             except Exception:
@@ -1069,8 +1142,7 @@ class LANChatApp:
         if not chat:
             return
         self.selected_key = chat_key
-        title = f"👥 گروه: {chat.name}" if chat.is_group else f"گفتگو با {chat.name} ({chat.ip})"
-        self.chat_title.config(text=title)
+        self.chat_title.config(text=self._chat_title_text(chat))
         if chat.unread > 0:
             chat.unread = 0
             self._save_state()
