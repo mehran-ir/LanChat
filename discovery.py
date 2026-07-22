@@ -20,13 +20,52 @@ def start_responder(tcp_port: int, stop_event: threading.Event, get_display_name
     بعداً نامش را عوض کند، بدون نیاز به راه‌اندازی مجدد این ترد، نام جدید اعمال می‌شود).
     اگر داده نشود، از نام کامپیوتر (hostname) استفاده می‌شود.
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    except (AttributeError, OSError):
-        pass  # در ویندوز SO_REUSEPORT وجود ندارد
-    sock.bind(("", DISCOVERY_PORT))
+def start_responder(tcp_port: int, stop_event: threading.Event, get_display_name=None, on_error=None):
+    """
+    یک ترد که همیشه در پس‌زمینه اجرا می‌شود و به درخواست‌های کشف کامپیوترهای دیگر پاسخ می‌دهد.
+    get_display_name: تابعی بدون آرگومان که نام نمایشی فعلی را برمی‌گرداند (اگر کاربر
+    بعداً نامش را عوض کند، بدون نیاز به راه‌اندازی مجدد این ترد، نام جدید اعمال می‌شود).
+    اگر داده نشود، از نام کامپیوتر (hostname) استفاده می‌شود.
+    on_error: تابعی که در صورت شکست کامل bind (مثلاً پورت توسط برنامه دیگری اشغال شده)
+    با متن خطا صدا زده می‌شود؛ در این حالت این کامپیوتر توسط بقیه قابل کشف نخواهد بود.
+    """
+    sock = None
+    last_error = None
+    for attempt in range(5):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            except (AttributeError, OSError):
+                pass  # در ویندوز SO_REUSEPORT وجود ندارد
+            sock.bind(("", DISCOVERY_PORT))
+            last_error = None
+            break
+        except OSError as e:
+            last_error = e
+            try:
+                if sock:
+                    sock.close()
+            except Exception:
+                pass
+            sock = None
+            if stop_event.wait(1.0):  # منتظر می‌مانیم شاید پورت آزاد شود (مثلاً نمونه قبلی در حال بسته‌شدن است)
+                return
+
+    if sock is None:
+        msg = (
+            f"گوش دادن روی پورت {DISCOVERY_PORT} ممکن نشد ({last_error}). "
+            "احتمالاً نمونه دیگری از این برنامه یا برنامه دیگری از همین پورت استفاده می‌کند؛ "
+            "این کامپیوتر توسط اسکن سایر کامپیوترها پیدا نخواهد شد."
+        )
+        if on_error:
+            try:
+                on_error(msg)
+            except Exception:
+                pass
+        return
+
     sock.settimeout(1.0)
 
     def current_name():

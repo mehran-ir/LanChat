@@ -160,7 +160,7 @@ class ChatView(tk.Frame):
 
     def _draw_bubble(self, y, msg, text, outgoing, sender, is_group):
         w = max(self.canvas.winfo_width(), 200)
-        bubble_color = "#ffffff"
+        bubble_color = "#dcf8dc" if outgoing else "#ffffff"
         text_color = "#111111"
 
         header = ""
@@ -187,7 +187,7 @@ class ChatView(tk.Frame):
             x1 = 20
             x2 = x1 + bubble_w
 
-        outline_color = "#7fc8c8" if outgoing else "#bbbbbb"
+        outline_color = "#8fd98f" if outgoing else "#bbbbbb"
         rect_id = self.canvas.create_rectangle(
             x1, y, x2, y + bubble_h, fill=bubble_color, outline=outline_color, width=1, tags=("msg",)
         )

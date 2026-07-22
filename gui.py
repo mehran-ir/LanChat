@@ -22,6 +22,7 @@ from chatview import ChatView
 from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR
 from emoji_render import get_emoji_icon
 import taskbar_badge
+import tray_icon
 
 EMOJIS = [
     "😀", "😂", "😍", "👍", "👎", "🙏", "🎉", "❤️",
@@ -77,6 +78,7 @@ class LANChatApp:
         self.incoming_queue = queue.Queue()
         self.pending_sends = {}
         self._contact_keys_in_order = []
+        self._last_status_kind = "success"
         self._has_focus = True
 
         self._build_ui()
@@ -89,7 +91,14 @@ class LANChatApp:
         self.root.bind("<FocusIn>", lambda e: setattr(self, "_has_focus", True))
         self.root.bind("<FocusOut>", lambda e: setattr(self, "_has_focus", False))
         self.root.after(500, self._update_taskbar_badge)
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self.tray = tray_icon.TrayIcon(
+            on_open=lambda: self.root.after(0, self._restore_from_tray),
+            on_quit=lambda: self.root.after(0, self._quit_app),
+            tooltip=f"LanChat by MGH - {self.my_name}",
+        )
+        self._tray_active = self.tray.start()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
     # ---------------------------------------------------------------- UI ---
     def _build_ui(self):
@@ -155,7 +164,7 @@ class LANChatApp:
         ttk.Button(left, text="👥 ایجاد گروه جدید", command=self._on_create_group).pack(fill="x", pady=(0, 4))
         ttk.Button(left, text="باز کردن پوشه فایل‌های دریافتی", command=self._open_received_folder).pack(fill="x")
 
-        self.status_label = ttk.Label(left, text="آماده", foreground="#1a7a1a")
+        self.status_label = ttk.Label(left, text="آماده", foreground=self._status_color("success"))
         self.status_label.pack(fill="x", pady=(8, 0))
 
         # =========================================================== RIGHT
@@ -230,7 +239,10 @@ class LANChatApp:
     def _start_networking(self):
         self._stop_event = threading.Event()
         self.responder_thread = threading.Thread(
-            target=start_responder, args=(TCP_PORT, self._stop_event, lambda: self.my_name), daemon=True
+            target=start_responder,
+            args=(TCP_PORT, self._stop_event, lambda: self.my_name),
+            kwargs={"on_error": lambda msg: self.root.after(0, lambda: self._on_responder_error(msg))},
+            daemon=True,
         )
         self.responder_thread.start()
 
@@ -246,7 +258,7 @@ class LANChatApp:
         # خودکار انجام می‌شود تا کاربر مجبور نباشد برای شروع کار دستی کلیک کند.
         self._refresh_contact_list()
         if not self.contacts and not self.groups:
-            self.status_label.config(text="در حال اسکن اولیه شبکه...", foreground="#b46a00")
+            self._set_status("در حال اسکن اولیه شبکه...", "warning")
             self.root.after(400, self._on_scan_clicked)
 
     def _on_message_received_threadsafe(self, header):
@@ -364,8 +376,16 @@ class LANChatApp:
         return c
 
     # ------------------------------------------------------------ ACTIONS ---
+    def _on_responder_error(self, message):
+        self._set_status("⚠️ " + message, "error")
+        messagebox.showwarning(
+            "مشکل در دریافت درخواست‌های اسکن",
+            message + "\n\nپیشنهاد: مطمئن شوید نمونه دیگری از LanChat روی همین کامپیوتر باز نیست، "
+            "سپس برنامه را ببندید (از منوی Tray گزینه «خروج») و دوباره اجرا کنید.",
+        )
+
     def _on_scan_clicked(self):
-        self.status_label.config(text="در حال اسکن شبکه...", foreground="#b46a00")
+        self._set_status("در حال اسکن شبکه...", "warning")
 
         def worker():
             found = scan_network(TCP_PORT, timeout=2.5, display_name=self.my_name)
@@ -385,14 +405,14 @@ class LANChatApp:
                 self.contacts[key].name = item["name"]
         self._save_state()
         self._refresh_contact_list()
-        self.status_label.config(text=f"اسکن پایان یافت — {added} کامپیوتر جدید یافت شد", foreground="#1a7a1a")
+        self._set_status(f"اسکن پایان یافت — {added} کامپیوتر جدید یافت شد", "success")
 
     def _on_add_manual(self):
         ip = simpledialog.askstring("افزودن دستی", "آدرس IP کامپیوتر مقصد را وارد کنید:", parent=self.root)
         if not ip:
             return
         ip = ip.strip()
-        self.status_label.config(text=f"در حال بررسی {ip} ...", foreground="#b46a00")
+        self._set_status(f"در حال بررسی {ip} ...", "warning")
 
         def worker():
             info = probe_single_ip(ip, TCP_PORT, timeout=2.5, display_name=self.my_name)
@@ -417,7 +437,7 @@ class LANChatApp:
             )
         self._save_state()
         self._refresh_contact_list()
-        self.status_label.config(text="آماده", foreground="#1a7a1a")
+        self._set_status("آماده", "success")
 
     def _on_create_group(self):
         if not self.contacts:
@@ -698,7 +718,7 @@ class LANChatApp:
                 msg["status"] = "failed"
             self.root.after(0, lambda: (
                 self._render_if_open(chat), self._save_state(),
-                self.status_label.config(text="آماده", foreground="#1a7a1a"),
+                self._set_status("آماده", "success"),
             ))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -896,6 +916,20 @@ class LANChatApp:
         if popup:
             popup.destroy()
 
+    def _set_status(self, text: str, kind: str = "success"):
+        self._last_status_kind = kind
+        self.status_label.config(text=text, foreground=self._status_color(kind))
+
+    def _status_color(self, kind: str) -> str:
+        """رنگ مناسب برای پیام‌های وضعیت (موفق/هشدار/خطا) بر اساس روشن یا تیره بودن تم فعلی"""
+        is_dark_theme = contrast_text_color(self.theme_color) != "#101010"
+        palette = {
+            "success": "#6fdc8c" if is_dark_theme else "#1a7a1a",
+            "warning": "#ffb74d" if is_dark_theme else "#b46a00",
+            "error": "#ff6b6b" if is_dark_theme else "#c0392b",
+        }
+        return palette.get(kind, contrast_text_color(self.theme_color))
+
     def _apply_theme_to_widgets(self):
         fg = contrast_text_color(self.theme_color)
         style = ttk.Style()
@@ -915,6 +949,11 @@ class LANChatApp:
             self.chatview.set_theme(self.theme_color)
         if hasattr(self, "theme_btn_canvas"):
             self._draw_theme_button()
+        if hasattr(self, "status_label"):
+            try:
+                self.status_label.config(foreground=self._status_color(self._last_status_kind))
+            except Exception:
+                pass
 
     # ------------------------------------------------------------- CLOCK ---
     def _update_clock(self):
@@ -940,7 +979,7 @@ class LANChatApp:
 
     def _is_minimized_or_unfocused(self):
         try:
-            return self.root.state() == "iconic" or not self._has_focus
+            return self.root.state() in ("iconic", "withdrawn") or not self._has_focus
         except Exception:
             return not self._has_focus
 
@@ -1059,6 +1098,36 @@ class LANChatApp:
             },
         }
         persistence.save_state(STATE_PATH, data)
+
+    def _on_window_close(self):
+        """با کلیک روی دکمه X پنجره: اگر آیکون Tray فعال باشد، فقط مخفی می‌شویم (نه بسته)"""
+        if getattr(self, "_tray_active", False):
+            try:
+                self.root.withdraw()
+            except Exception:
+                self._on_close()
+        else:
+            self._on_close()
+
+    def _restore_from_tray(self):
+        try:
+            self.root.deiconify()
+            self.root.state("normal")
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(150, lambda: self.root.attributes("-topmost", False))
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _quit_app(self):
+        """خروج واقعی از برنامه (از طریق گزینه «خروج» در منوی Tray)"""
+        try:
+            if getattr(self, "tray", None):
+                self.tray.stop()
+        except Exception:
+            pass
+        self._on_close()
 
     def _on_close(self):
         self._stop_event.set()
