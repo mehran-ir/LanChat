@@ -94,6 +94,7 @@ class LANChatApp:
         self.root.bind("<FocusIn>", lambda e: setattr(self, "_has_focus", True))
         self.root.bind("<FocusOut>", lambda e: setattr(self, "_has_focus", False))
         self.root.after(500, self._update_taskbar_badge)
+        self.root.after(4000, self._retry_failed_messages)
 
         self.tray = tray_icon.TrayIcon(
             on_open=lambda: self.root.after(0, self._restore_from_tray),
@@ -231,9 +232,13 @@ class LANChatApp:
         self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Success.TButton")
         self.send_btn.pack(side="right")
 
-        self.msg_entry = ttk.Entry(bottom, font=("Tahoma", 10), justify="right")
+        self.msg_entry = tk.Text(bottom, height=1, font=("Tahoma", 10), wrap="none",
+                                  undo=False, relief="solid", borderwidth=1)
+        self.msg_entry.tag_configure("rtl", justify="right")
+        self.msg_entry.tag_add("rtl", "1.0", "end")
         self.msg_entry.pack(side="right", fill="x", expand=True, padx=(6, 6))
-        self.msg_entry.bind("<Return>", lambda e: self._on_send_message())
+        self.msg_entry.bind("<Return>", self._on_msg_entry_return)
+        self.msg_entry.bind("<KeyRelease>", lambda e: self.msg_entry.tag_add("rtl", "1.0", "end"))
 
     def _add_placeholder(self, entry, text):
         entry.configure(foreground="#999999")
@@ -322,6 +327,7 @@ class LANChatApp:
             chat = self._find_or_create_single_contact(ip, from_name)
 
         notify_needed = False
+        notify_force = False
         notify_title = f"پیام جدید از {from_name}"
         notify_body = ""
 
@@ -352,6 +358,7 @@ class LANChatApp:
                                                text=f"🔔 {from_name} یک بازر برایتان فرستاد!",
                                                outgoing=False, status="sent"))
             notify_needed = True
+            notify_force = True
             notify_title = f"بازر از {from_name}"
             notify_body = "🔔 بازر دریافت شد"
         elif msg_type == "read":
@@ -389,7 +396,7 @@ class LANChatApp:
             self._refresh_contact_list()
 
         if notify_needed:
-            self._maybe_notify(notify_title, notify_body, chat.key)
+            self._maybe_notify(notify_title, notify_body, chat.key, force=notify_force)
 
     def _merge_group_members(self, chat, members_list):
         if not members_list:
@@ -846,15 +853,19 @@ class LANChatApp:
             self._render_selected()
 
     # ------------------------------------------------------ SEND / RECEIVE ---
+    def _on_msg_entry_return(self, event=None):
+        self._on_send_message()
+        return "break"  # جلوگیری از درج خط جدید توسط رفتار پیش‌فرض ویجت Text
+
     def _on_send_message(self):
         chat = self._get_selected_chat()
         if not chat:
             messagebox.showinfo("انتخاب مقصد", "ابتدا یک کامپیوتر یا گروه را از لیست انتخاب کنید.")
             return
-        text = self.msg_entry.get().strip()
+        text = self.msg_entry.get("1.0", "end-1c").strip()
         if not text:
             return
-        self.msg_entry.delete(0, "end")
+        self.msg_entry.delete("1.0", "end")
 
         reply_to = reply_sender = reply_text = None
         if self._reply_target is not None:
@@ -897,8 +908,12 @@ class LANChatApp:
         self.pending_sends.pop(msg["id"], None)
 
         def worker():
-            try:
-                for ip, port in chat.targets(self.my_ip):
+            delivered = set(msg.get("_delivered_ips") or [])
+            all_ok = True
+            for ip, port in chat.targets(self.my_ip):
+                if ip in delivered:
+                    continue
+                try:
                     client.send_message(
                         ip, port, self.my_name, msg["text"], msg["id"],
                         group_id=chat.key if chat.is_group else None,
@@ -907,9 +922,11 @@ class LANChatApp:
                         reply_to=msg.get("reply_to"), reply_sender=msg.get("reply_sender"), reply_text=msg.get("reply_text"),
                         admin_ip=chat.admin_ip if chat.is_group else None,
                     )
-                msg["status"] = "sent"
-            except Exception:
-                msg["status"] = "failed"
+                    delivered.add(ip)
+                except Exception:
+                    all_ok = False
+            msg["_delivered_ips"] = list(delivered)
+            msg["status"] = "sent" if all_ok else "failed"
             self.root.after(0, lambda: (self._render_if_open(chat), self._save_state()))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -942,8 +959,12 @@ class LANChatApp:
             self.root.after(0, lambda: self.status_label.config(text=f"ارسال {filename}: {percent}%"))
 
         def worker():
-            try:
-                for ip, port in chat.targets(self.my_ip):
+            delivered = set(msg.get("_delivered_ips") or [])
+            all_ok = True
+            for ip, port in chat.targets(self.my_ip):
+                if ip in delivered:
+                    continue
+                try:
                     client.send_file(
                         ip, port, self.my_name, filepath, msg["id"],
                         group_id=chat.key if chat.is_group else None,
@@ -952,13 +973,62 @@ class LANChatApp:
                         progress_cb=progress_cb,
                         admin_ip=chat.admin_ip if chat.is_group else None,
                     )
-                msg["status"] = "sent"
-            except Exception:
-                msg["status"] = "failed"
+                    delivered.add(ip)
+                except Exception:
+                    all_ok = False
+            msg["_delivered_ips"] = list(delivered)
+            msg["status"] = "sent" if all_ok else "failed"
             self.root.after(0, lambda: (
                 self._render_if_open(chat), self._save_state(),
                 self._set_status("آماده", "success"),
             ))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _retry_failed_messages(self):
+        """هر چند ثانیه یک‌بار، پیام‌ها/فایل‌های ناموفق قبلی را دوباره امتحان می‌کند تا وقتی
+        طرف مقابل دوباره برنامه را باز کرد، پیام‌های در انتظار به او تحویل داده شود."""
+        all_chats = list(self.contacts.values()) + list(self.groups.values())
+        for chat in all_chats:
+            for msg in chat.messages:
+                if msg.get("outgoing") and msg.get("status") == "failed" and msg.get("type") in ("text", "file"):
+                    self._resend_message(chat, msg)
+        self.root.after(20000, self._retry_failed_messages)
+
+    def _resend_message(self, chat, msg):
+        def worker():
+            delivered = set(msg.get("_delivered_ips") or [])
+            all_ok = True
+            for ip, port in chat.targets(self.my_ip):
+                if ip in delivered:
+                    continue
+                try:
+                    if msg.get("type") == "text":
+                        client.send_message(
+                            ip, port, self.my_name, msg["text"], msg["id"],
+                            group_id=chat.key if chat.is_group else None,
+                            group_name=chat.name if chat.is_group else None,
+                            members=chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT) if chat.is_group else None,
+                            reply_to=msg.get("reply_to"), reply_sender=msg.get("reply_sender"), reply_text=msg.get("reply_text"),
+                            admin_ip=chat.admin_ip if chat.is_group else None,
+                        )
+                    else:  # file
+                        if not msg.get("path") or not os.path.exists(msg["path"]):
+                            continue  # فایل اصلی دیگر روی دیسک نیست؛ نمی‌توان دوباره فرستاد
+                        client.send_file(
+                            ip, port, self.my_name, msg["path"], msg["id"],
+                            group_id=chat.key if chat.is_group else None,
+                            group_name=chat.name if chat.is_group else None,
+                            members=chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT) if chat.is_group else None,
+                            admin_ip=chat.admin_ip if chat.is_group else None,
+                        )
+                    delivered.add(ip)
+                except Exception:
+                    all_ok = False
+            msg["_delivered_ips"] = list(delivered)
+            if all_ok:
+                msg["status"] = "sent"
+                self.root.after(0, lambda: (self._render_if_open(chat), self._save_state()))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1126,6 +1196,7 @@ class LANChatApp:
 
     def _insert_emoji(self, emoji, popup):
         self.msg_entry.insert(tk.INSERT, emoji)
+        self.msg_entry.tag_add("rtl", "1.0", "end")
         popup.destroy()
         self.msg_entry.focus_set()
 
@@ -1251,10 +1322,10 @@ class LANChatApp:
         else:
             self.notif_toggle_btn.config(text="🔕")
 
-    def _maybe_notify(self, title, message, chat_key=None):
-        if not self.notifications_enabled:
+    def _maybe_notify(self, title, message, chat_key=None, force=False):
+        if not force and not self.notifications_enabled:
             return
-        if self._is_minimized_or_unfocused():
+        if force or self._is_minimized_or_unfocused():
             try:
                 self._show_toast(title, message, chat_key)
             except Exception:
