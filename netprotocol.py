@@ -31,12 +31,14 @@ def _send_header_only(sock: socket.socket, header: dict):
 
 def send_message(sock: socket.socket, from_name: str, text: str, msg_id: str,
                   group_id: str = None, group_name: str = None, members: list = None,
-                  reply_to: str = None, reply_sender: str = None, reply_text: str = None):
+                  reply_to: str = None, reply_sender: str = None, reply_text: str = None,
+                  admin_ip: str = None):
     header = {"type": "msg", "from": from_name, "text": text, "id": msg_id}
     if group_id:
         header["group_id"] = group_id
         header["group_name"] = group_name
         header["members"] = members
+        header["admin_ip"] = admin_ip
     if reply_to:
         header["reply_to"] = reply_to
         header["reply_sender"] = reply_sender
@@ -46,7 +48,7 @@ def send_message(sock: socket.socket, from_name: str, text: str, msg_id: str,
 
 def send_file(sock: socket.socket, from_name: str, filepath: str, msg_id: str,
               group_id: str = None, group_name: str = None, members: list = None,
-              progress_cb=None):
+              progress_cb=None, admin_ip: str = None):
     filesize = os.path.getsize(filepath)
     filename = os.path.basename(filepath)
     header = {
@@ -60,6 +62,7 @@ def send_file(sock: socket.socket, from_name: str, filepath: str, msg_id: str,
         header["group_id"] = group_id
         header["group_name"] = group_name
         header["members"] = members
+        header["admin_ip"] = admin_ip
 
     header_bytes = json.dumps(header, ensure_ascii=False).encode("utf-8")
     sock.sendall(struct.pack(">I", len(header_bytes)))
@@ -88,6 +91,23 @@ def send_read(sock: socket.socket, from_name: str, message_ids: list, group_id: 
     header = {"type": "read", "from": from_name, "message_ids": message_ids}
     if group_id:
         header["group_id"] = group_id
+    _send_header_only(sock, header)
+
+
+def send_group_update(sock: socket.socket, from_name: str, group_id: str, group_name: str,
+                       members: list, admin_ip: str):
+    """
+    فقط ادمین گروه این را می‌فرستد: لیست کامل و نهایی اعضا را به هرکسی که باید
+    مطلع شود (اعضای باقی‌مانده + عضو تازه اضافه‌شده + عضو تازه حذف‌شده) اعلام می‌کند.
+    """
+    header = {
+        "type": "group_update",
+        "from": from_name,
+        "group_id": group_id,
+        "group_name": group_name,
+        "members": members,
+        "admin_ip": admin_ip,
+    }
     _send_header_only(sock, header)
 
 

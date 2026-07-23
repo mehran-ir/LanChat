@@ -4,7 +4,7 @@
 """
 
 DEFAULT_THEME = "#F5F5F5"
-THEME_OPTIONS = ["#F5F5F5", "#FFDDF4", "#010B13", "#ACE1AF"]
+THEME_OPTIONS = ["#F5F5F5", "#FFDDF4", "#1E1E1E", "#ACE1AF"]
 
 # رنگ پیش‌فرض خود باکس نمایش گفتگو — سفید
 DEFAULT_CHATBOX_COLOR = "#FFFFFF"
@@ -12,7 +12,7 @@ DEFAULT_CHATBOX_COLOR = "#FFFFFF"
 THEME_NAMES = {
     "#F5F5F5": "خاکستری روشن (پیش‌فرض)",
     "#FFDDF4": "صورتی",
-    "#010B13": "تیره",
+    "#1E1E1E": "تیره (Dark)",
     "#ACE1AF": "سبز",
 }
 

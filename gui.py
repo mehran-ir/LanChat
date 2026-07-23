@@ -56,6 +56,8 @@ class LANChatApp:
         self.contacts = {k: ChatEntry.from_dict(v) for k, v in raw_state.get("contacts", {}).items()}
         self.groups = {k: ChatEntry.from_dict(v) for k, v in raw_state.get("groups", {}).items()}
         self.theme_color = raw_state.get("settings", {}).get("theme_color", DEFAULT_THEME)
+        if self.theme_color == "#010B13":  # تم مشکی قدیمی حذف شده؛ به تم تیره جدید منتقل می‌شود
+            self.theme_color = "#1E1E1E"
         self.chatbox_color = raw_state.get("settings", {}).get("chatbox_color", DEFAULT_CHATBOX_COLOR)
         self.notifications_enabled = raw_state.get("settings", {}).get("notifications_enabled", True)
 
@@ -305,7 +307,7 @@ class LANChatApp:
                     return
                 members = [m for m in members if m.get("ip") != self.my_ip]
                 chat = ChatEntry(key=group_id, name=header.get("group_name") or "گروه جدید",
-                                  is_group=True, members=members)
+                                  is_group=True, members=members, admin_ip=header.get("admin_ip"))
                 self.groups[group_id] = chat
             else:
                 # فقط پیام‌هایی که واقعاً از یکی از اعضای شناخته‌شده همین گروه می‌رسد پذیرفته می‌شود
@@ -314,6 +316,8 @@ class LANChatApp:
                     return
                 self._merge_group_members(chat, header.get("members") or [])
                 self._sync_member_name(chat, ip, from_name)
+                if not chat.admin_ip and header.get("admin_ip"):
+                    chat.admin_ip = header.get("admin_ip")
         else:
             chat = self._find_or_create_single_contact(ip, from_name)
 
@@ -355,6 +359,22 @@ class LANChatApp:
             for m in chat.messages:
                 if m.get("outgoing") and m.get("id") in id_set and m.get("status") == "sent":
                     m["status"] = "read"
+        elif msg_type == "group_update":
+            # فقط ادمین واقعی گروه اجازه دارد لیست اعضا را تغییر دهد؛ در غیر این صورت نادیده گرفته می‌شود
+            if chat.admin_ip and ip != chat.admin_ip:
+                return
+            new_members_header = header.get("members") or []
+            i_am_included = any(m.get("ip") == self.my_ip for m in new_members_header)
+            chat.members = [m for m in new_members_header if m.get("ip") != self.my_ip]
+            if header.get("group_name"):
+                chat.name = header.get("group_name")
+            if header.get("admin_ip"):
+                chat.admin_ip = header.get("admin_ip")
+            if not i_am_included:
+                chat.messages.append(make_message(
+                    new_id(), from_name, ip, "system",
+                    text="🚪 شما توسط ادمین از این گروه حذف شدید", outgoing=False, status="sent",
+                ))
         else:
             return
 
@@ -504,7 +524,8 @@ class LANChatApp:
             members = [{"name": contacts_list[i].name, "ip": contacts_list[i].ip, "port": contacts_list[i].port}
                        for i in sel]
             key = "group:" + new_id()
-            self.groups[key] = ChatEntry(key=key, name=group_name, is_group=True, members=members)
+            self.groups[key] = ChatEntry(key=key, name=group_name, is_group=True, members=members,
+                                          admin_ip=self.my_ip)
             self._save_state()
             self._refresh_contact_list()
             dlg.destroy()
@@ -594,11 +615,126 @@ class LANChatApp:
 
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label="✏️ ویرایش نام گروه", command=lambda: self._on_rename_group(chat))
+        if self._is_group_admin(chat):
+            menu.add_command(label="➕ افزودن عضو", command=lambda: self._on_add_group_members(chat))
+            menu.add_command(label="➖ حذف عضو", command=lambda: self._on_remove_group_member(chat))
         menu.add_command(label="🗑 حذف گروه", command=lambda: self._on_delete_group(chat))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _is_group_admin(self, chat) -> bool:
+        """آیا خودم ادمین این گروه هستم؟ برای گروه‌های قدیمی بدون ادمین ثبت‌شده، به‌صورت پیش‌فرض بله"""
+        return bool(chat and chat.is_group and (chat.admin_ip is None or chat.admin_ip == self.my_ip))
+
+    def _broadcast_group_update(self, chat):
+        """لیست کامل و نهایی اعضا را به تمام اعضای فعلی + قبلی/حذف‌شده‌ای که باید مطلع شوند می‌فرستد"""
+        full_members = chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT)
+        targets = list(chat.members)
+
+        def worker(target_list):
+            for m in target_list:
+                try:
+                    client.send_group_update(
+                        m["ip"], m.get("port", TCP_PORT), self.my_name,
+                        chat.key, chat.name, full_members, self.my_ip,
+                    )
+                except Exception:
+                    pass
+
+        threading.Thread(target=worker, args=(targets,), daemon=True).start()
+
+    def _on_add_group_members(self, chat):
+        if not self._is_group_admin(chat):
+            messagebox.showinfo("افزودن عضو", "فقط ادمین گروه می‌تواند عضو اضافه کند.")
+            return
+        existing_ips = {m.get("ip") for m in chat.members}
+        candidates = [c for c in self.contacts.values() if c.ip not in existing_ips]
+        if not candidates:
+            messagebox.showinfo("افزودن عضو", "همه‌ی کامپیوترهای شناخته‌شده از قبل عضو این گروه هستند.")
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"افزودن عضو به «{chat.name}»")
+        dlg.geometry("340x380")
+        dlg.transient(self.root)
+
+        ttk.Label(dlg, text="کامپیوترهایی که می‌خواهید اضافه کنید:", font=("Tahoma", 10, "bold")).pack(
+            anchor="e", padx=10, pady=(10, 4)
+        )
+        listbox = tk.Listbox(dlg, selectmode="multiple", font=("Tahoma", 10))
+        listbox.pack(fill="both", expand=True, padx=10)
+        for c in candidates:
+            listbox.insert("end", c.display_name)
+
+        def confirm():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showinfo("افزودن عضو", "حداقل یک کامپیوتر را انتخاب کنید.", parent=dlg)
+                return
+            for i in sel:
+                c = candidates[i]
+                chat.members.append({"name": c.name, "ip": c.ip, "port": c.port})
+            self._save_state()
+            self._broadcast_group_update(chat)
+            self._refresh_contact_list()
+            if self.selected_key == chat.key:
+                self.chat_title.config(text=self._chat_title_text(chat))
+            dlg.destroy()
+
+        ttk.Button(dlg, text="افزودن", command=confirm, style="Success.TButton").pack(pady=10)
+
+    def _on_remove_group_member(self, chat):
+        if not self._is_group_admin(chat):
+            messagebox.showinfo("حذف عضو", "فقط ادمین گروه می‌تواند عضو حذف کند.")
+            return
+        if not chat.members:
+            messagebox.showinfo("حذف عضو", "این گروه عضو دیگری ندارد.")
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"حذف عضو از «{chat.name}»")
+        dlg.geometry("340x360")
+        dlg.transient(self.root)
+
+        ttk.Label(dlg, text="عضوی که می‌خواهید حذف کنید:", font=("Tahoma", 10, "bold")).pack(
+            anchor="e", padx=10, pady=(10, 4)
+        )
+        listbox = tk.Listbox(dlg, font=("Tahoma", 10))
+        listbox.pack(fill="both", expand=True, padx=10)
+        for m in chat.members:
+            listbox.insert("end", f"👤 {m.get('name', '؟')}   —   {m.get('ip', '؟')}")
+
+        def confirm():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showinfo("حذف عضو", "یک عضو را انتخاب کنید.", parent=dlg)
+                return
+            target = chat.members[sel[0]]
+            if not messagebox.askyesno(
+                "تایید حذف", f"آیا از حذف «{target.get('name')}» از گروه مطمئن هستید؟", parent=dlg
+            ):
+                return
+            removed = chat.members.pop(sel[0])
+            self._save_state()
+            self._broadcast_group_update(chat)
+            # به عضو حذف‌شده هم جداگانه خبر می‌دهیم تا او هم مطلع شود
+            try:
+                client.send_group_update(
+                    removed["ip"], removed.get("port", TCP_PORT), self.my_name,
+                    chat.key, chat.name,
+                    chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT), self.my_ip,
+                )
+            except Exception:
+                pass
+            self._refresh_contact_list()
+            if self.selected_key == chat.key:
+                self.chat_title.config(text=self._chat_title_text(chat))
+                self._render_selected()
+            dlg.destroy()
+
+        ttk.Button(dlg, text="حذف عضو", command=confirm, style="Danger.TButton").pack(pady=10)
 
     def _on_rename_self(self):
         new_name = simpledialog.askstring(
@@ -769,6 +905,7 @@ class LANChatApp:
                         group_name=chat.name if chat.is_group else None,
                         members=chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT) if chat.is_group else None,
                         reply_to=msg.get("reply_to"), reply_sender=msg.get("reply_sender"), reply_text=msg.get("reply_text"),
+                        admin_ip=chat.admin_ip if chat.is_group else None,
                     )
                 msg["status"] = "sent"
             except Exception:
@@ -813,6 +950,7 @@ class LANChatApp:
                         group_name=chat.name if chat.is_group else None,
                         members=chat.all_members_including_me(self.my_name, self.my_ip, TCP_PORT) if chat.is_group else None,
                         progress_cb=progress_cb,
+                        admin_ip=chat.admin_ip if chat.is_group else None,
                     )
                 msg["status"] = "sent"
             except Exception:
