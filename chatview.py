@@ -3,12 +3,15 @@
 ویجت نمایش گفتگو (Canvas-based) با پشتیبانی از:
 - تصویر پس‌زمینه اختصاصی برای هر چت
 - حباب‌های پیام برای ارسالی/دریافتی با ساعت شمسی/تهران کنارشان
-- نمایش رنگی و کمی بزرگ‌تر ایموجی‌های داخل متن پیام (نه فقط دکمه‌ها)
-- کلیک راست روی پیام‌های خودم برای «لغو ارسال»
+- کلیک راست روی پیام‌های خودم برای «لغو ارسال» / «پاسخ»
 - فیلتر کردن بر اساس عبارت جستجو
+
+نکته مهم: متن پیام‌ها همیشه با canvas.create_text (موتور بومی رندر متن Tkinter)
+رسم می‌شود، نه با چیدمان دستی کلمه‌به‌کلمه — چون چیدمان دستی، ترتیب صحیح
+راست‌به‌چپ متن فارسی/عربی را به‌هم می‌زند. موتور بومی Tk این ترتیب را درست
+رعایت می‌کند.
 """
 import os
-import re
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
@@ -16,7 +19,6 @@ from tkinter import ttk
 from jalali import jalali_datetime_str
 from theme import contrast_text_color, DEFAULT_CHATBOX_COLOR
 from emoji_render import get_emoji_icon, is_emoji_only, split_emoji_clusters
-from emoji_render import get_emoji_icon
 
 try:
     from PIL import Image, ImageTk
@@ -25,41 +27,6 @@ except Exception:
     HAVE_PIL = False
 
 BUBBLE_WIDTH = 340
-EMOJI_INLINE_SIZE = 20  # کمی بزرگ‌تر از فونت معمولی متن (که حدوداً ۱۳-۱۴ پیکسل است)
-
-# یک ایموجی می‌تواند از چند کد-پوینت تشکیل شده باشد (پرچم‌ها، رنگ پوست، دنباله‌های ZWJ)؛
-# این الگو سعی می‌کند کل یک خوشه ایموجی را یکجا تشخیص دهد.
-_EMOJI_CLUSTER_RE = re.compile(
-    "(?:["
-    "\U0001F1E6-\U0001F1FF"  # پرچم‌های کشورها
-    "\U0001F300-\U0001FAFF"  # نمادهای متفرقه، پیکتوگرام‌ها، ایموجی‌های تکمیلی
-    "\U00002600-\U000027BF"  # نمادهای متفرقه + Dingbats
-    "\U00002B00-\U00002BFF"  # فلش‌ها و نمادهای متفرقه
-    "\U00002300-\U000023FF"  # نمادهای فنی متفرقه (⏰ ⌛ و ...)
-    "\U0001F000-\U0001F0FF"  # کارت‌های بازی/مجموعه‌های دیگر
-    "]"
-    "[\uFE0F\u200D\U0001F3FB-\U0001F3FF]*"  # variation selector / ZWJ / رنگ پوست
-    ")+"
-)
-
-
-def _split_words(segment):
-    """یک تکه متن معمولی را به واحدهای قابل‌شکست (کلمه + فاصله انتهایی) تقسیم می‌کند"""
-    return [("text", w) for w in re.findall(r"\S+\s*|\s+", segment) if w]
-
-
-def _tokenize_rich(text):
-    """متن را به لیستی از واحدهای ('text', ...) و ('emoji', ...) تبدیل می‌کند"""
-    units = []
-    pos = 0
-    for m in _EMOJI_CLUSTER_RE.finditer(text):
-        if m.start() > pos:
-            units.extend(_split_words(text[pos:m.start()]))
-        units.append(("emoji", m.group()))
-        pos = m.end()
-    if pos < len(text):
-        units.extend(_split_words(text[pos:]))
-    return units
 
 
 class ChatView(tk.Frame):
@@ -74,7 +41,7 @@ class ChatView(tk.Frame):
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bg=self.box_color)
         self.vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=self.vbar.set)
+        self.canvas.configure(yscrollcommand=self._on_yscroll)
         self.canvas.pack(side="left", fill="both", expand=True)
         self.vbar.pack(side="right", fill="y")
 
@@ -135,6 +102,23 @@ class ChatView(tk.Frame):
             self.canvas.yview_scroll(3, "units")
         else:
             self.canvas.yview_scroll(int(-1 * (event.delta / 120) * 3), "units")
+        self._reposition_background()
+
+    def _on_yscroll(self, first, last):
+        """هر بار نمای بوم اسکرول شود (چه با ماوس، چه با اسکرول‌بار، چه برنامه‌ای) این فراخوانی می‌شود"""
+        self.vbar.set(first, last)
+        self._reposition_background()
+
+    def _reposition_background(self):
+        """تصویر پس‌زمینه را همیشه بالای همان ناحیه‌ای که الان دیده می‌شود نگه می‌دارد تا با اسکرول از بین نرود"""
+        if not self.bg_path:
+            return
+        try:
+            top_y = self.canvas.canvasy(0)
+            if self.canvas.find_withtag("bg"):
+                self.canvas.coords("bg", 0, top_y)
+        except Exception:
+            pass
 
     def _render_background(self):
         self.canvas.delete("bg")
@@ -151,7 +135,7 @@ class ChatView(tk.Frame):
                 self._bg_photo = ImageTk.PhotoImage(img)
             else:
                 self._bg_photo = tk.PhotoImage(file=self.bg_path)
-            self.canvas.create_image(0, 0, image=self._bg_photo, anchor="nw", tags=("bg",))
+            self.canvas.create_image(0, self.canvas.canvasy(0), image=self._bg_photo, anchor="nw", tags=("bg",))
             self.canvas.tag_lower("bg")
         except Exception:
             self.canvas.configure(bg=self.box_color)
@@ -212,55 +196,6 @@ class ChatView(tk.Frame):
             w / 2, y, text=text, fill="#666666", font=("Tahoma", 8), tags=("msg",)
         )
         return y + 24
-
-    # ------------------------------------------------------ RICH TEXT LAYOUT ---
-    def _layout_rich(self, x, y, units, max_width, draw=False, fill="#111111", tag="msg"):
-        """
-        متن ترکیبی از کلمات معمولی و ایموجی رنگی را با رعایت Word-Wrap می‌چیند.
-        اگر draw=True باشد، واقعاً روی Canvas رسم می‌کند؛ در غیر این صورت فقط اندازه‌گیری می‌کند.
-        خروجی: (عرض مصرف‌شده, ارتفاع کل)
-        """
-        font_obj = self._body_font
-        line_height = max(font_obj.metrics("linespace"), EMOJI_INLINE_SIZE + 6)
-        cur_x = 0
-        cur_y = 0
-        max_line_w = 0
-
-        for kind, content in units:
-            if kind == "text":
-                piece_w = font_obj.measure(content)
-                if cur_x > 0 and cur_x + piece_w > max_width:
-                    cur_x = 0
-                    cur_y += line_height
-                if draw and content.strip():
-                    self.canvas.create_text(
-                        x + cur_x, y + cur_y + line_height / 2, text=content,
-                        font=font_obj, anchor="w", fill=fill, tags=tag,
-                    )
-                cur_x += piece_w
-            else:  # emoji
-                piece_w = EMOJI_INLINE_SIZE + 4
-                if cur_x > 0 and cur_x + piece_w > max_width:
-                    cur_x = 0
-                    cur_y += line_height
-                if draw:
-                    icon = get_emoji_icon(content, size=EMOJI_INLINE_SIZE)
-                    if icon:
-                        self.canvas.create_image(
-                            x + cur_x, y + cur_y + (line_height - EMOJI_INLINE_SIZE) / 2,
-                            image=icon, anchor="nw", tags=tag,
-                        )
-                        self._photo_refs.append(icon)
-                    else:
-                        self.canvas.create_text(
-                            x + cur_x, y + cur_y + line_height / 2, text=content,
-                            font=font_obj, anchor="w", fill=fill, tags=tag,
-                        )
-                cur_x += piece_w
-            max_line_w = max(max_line_w, cur_x)
-
-        total_height = cur_y + line_height
-        return max_line_w, total_height
 
     def _draw_jumbo_emoji_bubble(self, y, msg, outgoing, sender, is_group):
         """پیام‌هایی که فقط شامل ایموجی هستند را بزرگ‌تر و رنگی (بدون باکس متنی) نشان می‌دهد"""
@@ -363,8 +298,14 @@ class ChatView(tk.Frame):
             quote_h = self._quote_font.metrics("linespace") + 8
             quote_w = min(inner_max_w, self._quote_font.measure(quote_line) + 10)
 
-        units = _tokenize_rich(text)
-        body_w, body_h = self._layout_rich(0, 0, units, inner_max_w, draw=False)
+        # اندازه‌گیری متن اصلی با رندر بومی Tkinter (که ترتیب راست‌به‌چپ فارسی را درست رعایت می‌کند)
+        tmp_id = self.canvas.create_text(
+            0, 0, text=text, font=self._body_font, width=inner_max_w, anchor="nw"
+        )
+        bbox = self.canvas.bbox(tmp_id)
+        self.canvas.delete(tmp_id)
+        body_w = (bbox[2] - bbox[0]) if bbox else 30
+        body_h = (bbox[3] - bbox[1]) if bbox else self._body_font.metrics("linespace")
 
         content_w = max(header_w, body_w, quote_w, 30)
         content_h = header_h + quote_h + (4 if reply_to else 0) + body_h
@@ -405,9 +346,10 @@ class ChatView(tk.Frame):
             )
             cursor_y += quote_h + 4
 
-        self._layout_rich(
-            x1 + pad, cursor_y, units, inner_max_w,
-            draw=True, fill=text_color, tag="msg",
+        # رسم مستقیم متن اصلی با canvas.create_text — موتور بومی Tkinter، بدون چیدمان دستی کلمه‌به‌کلمه
+        self.canvas.create_text(
+            x1 + pad, cursor_y, text=text, font=self._body_font, width=inner_max_w,
+            anchor="nw", fill=text_color, tags=("msg",),
         )
 
         ts_str = self._format_timestamp(msg)

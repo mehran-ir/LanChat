@@ -7,6 +7,7 @@ import queue
 import shutil
 import sys
 import threading
+import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
@@ -95,6 +96,7 @@ class LANChatApp:
         self.root.bind("<FocusOut>", lambda e: setattr(self, "_has_focus", False))
         self.root.after(500, self._update_taskbar_badge)
         self.root.after(4000, self._retry_failed_messages)
+        self.root.after(2500, self._check_presence)
 
         self.tray = tray_icon.TrayIcon(
             on_open=lambda: self.root.after(0, self._restore_from_tray),
@@ -232,13 +234,9 @@ class LANChatApp:
         self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Success.TButton")
         self.send_btn.pack(side="right")
 
-        self.msg_entry = tk.Text(bottom, height=1, font=("Tahoma", 10), wrap="none",
-                                  undo=False, relief="solid", borderwidth=1)
-        self.msg_entry.tag_configure("rtl", justify="right")
-        self.msg_entry.tag_add("rtl", "1.0", "end")
+        self.msg_entry = ttk.Entry(bottom, font=("Tahoma", 10), justify="right")
         self.msg_entry.pack(side="right", fill="x", expand=True, padx=(6, 6))
-        self.msg_entry.bind("<Return>", self._on_msg_entry_return)
-        self.msg_entry.bind("<KeyRelease>", lambda e: self.msg_entry.tag_add("rtl", "1.0", "end"))
+        self.msg_entry.bind("<Return>", lambda e: self._on_send_message())
 
     def _add_placeholder(self, entry, text):
         entry.configure(foreground="#999999")
@@ -284,6 +282,8 @@ class LANChatApp:
             self._set_status("در حال اسکن اولیه شبکه...", "warning")
             self.root.after(400, self._on_scan_clicked)
 
+        threading.Thread(target=lambda: self._notify_presence_all("online"), daemon=True).start()
+
     def _on_message_received_threadsafe(self, header):
         self.incoming_queue.put(header)
 
@@ -301,6 +301,12 @@ class LANChatApp:
         ip = header.get("ip")
         from_name = header.get("from", ip)
         group_id = header.get("group_id")
+
+        if msg_type == "presence":
+            status = header.get("status")
+            if self._mark_online_by_ip(ip, status == "online"):
+                self._refresh_contact_list()
+            return
 
         if group_id:
             chat = self.groups.get(group_id)
@@ -431,9 +437,11 @@ class LANChatApp:
         for c in self.contacts.values():
             if c.ip == ip:
                 c.name = from_name
+                c.is_online = True
                 return c
         key = f"{ip}:{TCP_PORT}"
         c = ChatEntry(key=key, name=from_name, is_group=False, ip=ip, port=TCP_PORT)
+        c.is_online = True
         self.contacts[key] = c
         return c
 
@@ -465,6 +473,7 @@ class LANChatApp:
                 added += 1
             else:
                 self.contacts[key].name = item["name"]
+            self.contacts[key].is_online = True
         self._save_state()
         self._refresh_contact_list()
         self._set_status(f"اسکن پایان یافت — {added} کامپیوتر جدید یافت شد", "success")
@@ -488,10 +497,12 @@ class LANChatApp:
             if key not in self.contacts:
                 self.contacts[key] = ChatEntry(key=key, name=info["name"], is_group=False,
                                                 ip=info["ip"], port=info["port"])
+            self.contacts[key].is_online = True
         else:
             key = f"{ip}:{TCP_PORT}"
             if key not in self.contacts:
                 self.contacts[key] = ChatEntry(key=key, name=ip, is_group=False, ip=ip, port=TCP_PORT)
+            self.contacts[key].is_online = False
             messagebox.showwarning(
                 "بدون پاسخ",
                 f"کامپیوتر {ip} به درخواست شناسایی پاسخ نداد.\n"
@@ -853,19 +864,15 @@ class LANChatApp:
             self._render_selected()
 
     # ------------------------------------------------------ SEND / RECEIVE ---
-    def _on_msg_entry_return(self, event=None):
-        self._on_send_message()
-        return "break"  # جلوگیری از درج خط جدید توسط رفتار پیش‌فرض ویجت Text
-
     def _on_send_message(self):
         chat = self._get_selected_chat()
         if not chat:
             messagebox.showinfo("انتخاب مقصد", "ابتدا یک کامپیوتر یا گروه را از لیست انتخاب کنید.")
             return
-        text = self.msg_entry.get("1.0", "end-1c").strip()
+        text = self.msg_entry.get().strip()
         if not text:
             return
-        self.msg_entry.delete("1.0", "end")
+        self.msg_entry.delete(0, "end")
 
         reply_to = reply_sender = reply_text = None
         if self._reply_target is not None:
@@ -927,6 +934,8 @@ class LANChatApp:
                     all_ok = False
             msg["_delivered_ips"] = list(delivered)
             msg["status"] = "sent" if all_ok else "failed"
+            if all_ok and not chat.is_group:
+                chat.is_online = True
             self.root.after(0, lambda: (self._render_if_open(chat), self._save_state()))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -978,12 +987,40 @@ class LANChatApp:
                     all_ok = False
             msg["_delivered_ips"] = list(delivered)
             msg["status"] = "sent" if all_ok else "failed"
+            if all_ok and not chat.is_group:
+                chat.is_online = True
             self.root.after(0, lambda: (
                 self._render_if_open(chat), self._save_state(),
                 self._set_status("آماده", "success"),
             ))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _check_presence(self):
+        """هر چند ثانیه یک‌بار وضعیت آنلاین/آفلاین هر مخاطب تکی را با یک پینگ سبک بررسی می‌کند"""
+        contacts_snapshot = list(self.contacts.values())
+
+        def worker():
+            results = {}
+            for c in contacts_snapshot:
+                if not c.ip:
+                    continue
+                info = probe_single_ip(c.ip, c.port or TCP_PORT, timeout=1.2, display_name=self.my_name)
+                results[c.key] = info is not None
+            self.root.after(0, lambda: self._apply_presence_results(results))
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.root.after(20000, self._check_presence)
+
+    def _apply_presence_results(self, results):
+        changed = False
+        for key, online in results.items():
+            c = self.contacts.get(key)
+            if c and c.is_online != online:
+                c.is_online = online
+                changed = True
+        if changed:
+            self._refresh_contact_list()
 
     def _retry_failed_messages(self):
         """هر چند ثانیه یک‌بار، پیام‌ها/فایل‌های ناموفق قبلی را دوباره امتحان می‌کند تا وقتی
@@ -1028,6 +1065,8 @@ class LANChatApp:
             msg["_delivered_ips"] = list(delivered)
             if all_ok:
                 msg["status"] = "sent"
+                if not chat.is_group:
+                    chat.is_online = True
                 self.root.after(0, lambda: (self._render_if_open(chat), self._save_state()))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -1196,7 +1235,6 @@ class LANChatApp:
 
     def _insert_emoji(self, emoji, popup):
         self.msg_entry.insert(tk.INSERT, emoji)
-        self.msg_entry.tag_add("rtl", "1.0", "end")
         popup.destroy()
         self.msg_entry.focus_set()
 
@@ -1470,8 +1508,40 @@ class LANChatApp:
             pass
         self._on_close()
 
+    def _presence_targets(self):
+        targets = {}
+        for c in self.contacts.values():
+            if c.ip:
+                targets[c.ip] = c.port or TCP_PORT
+        for g in self.groups.values():
+            for m in g.members:
+                if m.get("ip"):
+                    targets.setdefault(m["ip"], m.get("port", TCP_PORT))
+        return targets
+
+    def _notify_presence_all(self, status, overall_timeout=2.0):
+        targets = self._presence_targets()
+        if not targets:
+            return
+
+        def send_one(ip, port):
+            try:
+                client.send_presence(ip, port, self.my_name, status, timeout=0.6)
+            except Exception:
+                pass
+
+        threads = []
+        for ip, port in targets.items():
+            t = threading.Thread(target=send_one, args=(ip, port), daemon=True)
+            t.start()
+            threads.append(t)
+        deadline = time.time() + overall_timeout
+        for t in threads:
+            t.join(timeout=max(0.0, deadline - time.time()))
+
     def _on_close(self):
         self._stop_event.set()
+        self._notify_presence_all("offline")
         self.server.stop()
         self._save_state()
         self.root.destroy()

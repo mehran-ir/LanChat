@@ -11,6 +11,7 @@ from netprotocol import (
     send_buzz as _send_buzz,
     send_read as _send_read,
     send_group_update as _send_group_update,
+    send_presence as _send_presence,
 )
 
 
@@ -60,6 +61,17 @@ def send_buzz(ip: str, port: int, from_name: str, group_id=None, timeout: float 
         sock.connect((ip, port))
         sock.settimeout(None)
         _send_buzz(sock, from_name, group_id)
+    finally:
+        sock.close()
+
+
+def send_presence(ip: str, port: int, from_name: str, status: str, timeout: float = 1.0):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, port))
+        sock.settimeout(None)
+        _send_presence(sock, from_name, status)
     finally:
         sock.close()
 

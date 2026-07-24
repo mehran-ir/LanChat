@@ -23,12 +23,14 @@ class ChatEntry:
         self.bg_image = bg_image  # مسیر فایل تصویر پس‌زمینه اختصاصی این چت
         self.unread = unread  # تعداد پیام/رویداد خوانده‌نشده (برای نمایش Badge کنار نام)
         self.admin_ip = admin_ip  # فقط برای گروه: آی‌پی کسی که گروه را ساخته و مدیریت می‌کند
+        self.is_online = None  # True/False/None(نامشخص) — عمداً ذخیره نمی‌شود، هر اجرا از نو
 
     @property
     def display_name(self):
         prefix = "👥 " if self.is_group else ""
         suffix = f"  ({self.ip})" if not self.is_group and self.ip else ""
-        return f"{prefix}{self.name}{suffix}"
+        offline_tag = "  ⚫ آفلاین" if (not self.is_group and self.is_online is False) else ""
+        return f"{prefix}{self.name}{suffix}{offline_tag}"
 
     def targets(self, my_ip):
         """لیست (ip, port) مقصدهایی که باید پیام برایشان ارسال شود"""

@@ -118,6 +118,12 @@ def send_buzz(sock: socket.socket, from_name: str, group_id: str = None):
     _send_header_only(sock, header)
 
 
+def send_presence(sock: socket.socket, from_name: str, status: str):
+    """status: 'online' یا 'offline' — برای اطلاع‌رسانی مستقیم به یک مخاطب شناخته‌شده"""
+    header = {"type": "presence", "from": from_name, "status": status}
+    _send_header_only(sock, header)
+
+
 def recv_frame(sock: socket.socket, save_dir: str):
     """
     یک فریم کامل را از سوکت می‌خواند و دیکشنری هدر را برمی‌گرداند.
