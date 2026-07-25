@@ -5,6 +5,7 @@
 import os
 import queue
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -205,7 +206,7 @@ class LANChatApp:
         self.chatview = ChatView(
             right, on_recall=self._handle_recall_click, on_open_file=self._open_path,
             theme_color=self.theme_color, box_color=self.chatbox_color,
-            on_reply=self._start_reply,
+            on_reply=self._start_reply, on_show_in_folder=self._show_in_explorer,
         )
         self.chatview.pack(fill="both", expand=True)
 
@@ -1342,6 +1343,18 @@ class LANChatApp:
                 os.system(f'xdg-open "{path}"')
         except Exception as e:
             messagebox.showerror("خطا", f"باز کردن مسیر ممکن نشد:\n{e}")
+
+    def _show_in_explorer(self, path):
+        """پوشه‌ی حاوی فایل را باز و خود فایل را در آن هایلایت می‌کند"""
+        try:
+            if sys.platform.startswith("win"):
+                subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-R", path])
+            else:
+                self._open_path(os.path.dirname(path))
+        except Exception as e:
+            messagebox.showerror("خطا", f"باز کردن پوشه ممکن نشد:\n{e}")
 
     def _is_minimized_or_unfocused(self):
         try:

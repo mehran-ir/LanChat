@@ -14,7 +14,7 @@
 import os
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 from jalali import jalali_datetime_str
 from theme import contrast_text_color, DEFAULT_CHATBOX_COLOR
@@ -27,17 +27,26 @@ except Exception:
     HAVE_PIL = False
 
 BUBBLE_WIDTH = 340
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+
+
+def _is_image_file(path):
+    if not path:
+        return False
+    return os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS
 
 
 class ChatView(tk.Frame):
     def __init__(self, parent, on_recall, on_open_file, theme_color="#AFEEEE",
-                 box_color=None, on_reply=None, **kwargs):
+                 box_color=None, on_reply=None, on_show_in_folder=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.on_recall = on_recall
         self.on_open_file = on_open_file
         self.on_reply = on_reply
+        self.on_show_in_folder = on_show_in_folder
         self.theme_color = theme_color
         self.box_color = box_color or DEFAULT_CHATBOX_COLOR
+        self._thumb_cache = {}
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bg=self.box_color)
         self.vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
@@ -185,6 +194,15 @@ class ChatView(tk.Frame):
                 y = self._draw_jumbo_emoji_bubble(y, msg, outgoing, sender, chat.is_group)
                 continue
 
+            if (
+                msg.get("type") == "file"
+                and status in ("sent", "read")
+                and not msg.get("reply_to")
+                and _is_image_file(msg.get("path"))
+            ):
+                y = self._draw_image_bubble(y, msg, outgoing, sender, chat.is_group)
+                continue
+
             y = self._draw_bubble(y, msg, display_text, outgoing, sender, chat.is_group)
 
         self.canvas.configure(scrollregion=(0, 0, self.canvas.winfo_width(), y + 20))
@@ -272,6 +290,153 @@ class ChatView(tk.Frame):
         while text and font_obj.measure(text + "…") > max_w:
             text = text[:-1]
         return text + "…" if text else "…"
+
+    def _load_thumbnail(self, path, max_w=220, max_h=220):
+        try:
+            mtime = os.path.getmtime(path)
+        except Exception:
+            return None
+        key = (path, max_w, max_h, mtime)
+        if key in self._thumb_cache:
+            return self._thumb_cache[key]
+        photo = None
+        try:
+            if HAVE_PIL:
+                img = Image.open(path)
+                img = img.convert("RGB") if img.mode not in ("RGB", "RGBA") else img
+                img.thumbnail((max_w, max_h))
+                photo = ImageTk.PhotoImage(img)
+            else:
+                photo = tk.PhotoImage(file=path)
+                factor = max(1, photo.width() // max_w, photo.height() // max_h)
+                if factor > 1:
+                    photo = photo.subsample(factor, factor)
+        except Exception:
+            photo = None
+        self._thumb_cache[key] = photo
+        return photo
+
+    def _draw_image_bubble(self, y, msg, outgoing, sender, is_group):
+        """پیام‌های حاوی فایل تصویری را با پیش‌نمایش کوچک شبیه واتساپ نشان می‌دهد"""
+        w = max(self.canvas.winfo_width(), 200)
+        pad = 6
+        path = msg.get("path")
+        thumb = self._load_thumbnail(path) if path and os.path.exists(path) else None
+
+        header_text = sender if (is_group and not outgoing) else ""
+        header_h = (self._header_font.metrics("linespace") + 3) if header_text else 0
+        header_w = self._header_font.measure(header_text) if header_text else 0
+
+        if thumb:
+            img_w, img_h = thumb.width(), thumb.height()
+        else:
+            img_w, img_h = 200, 50
+
+        bubble_w = max(img_w, header_w) + pad * 2
+        bubble_h = header_h + img_h + pad * 2
+
+        if outgoing:
+            x2 = w - 20
+            x1 = x2 - bubble_w
+        else:
+            x1 = 20
+            x2 = x1 + bubble_w
+
+        bubble_color = "#dcf8dc" if outgoing else "#ffffff"
+        outline_color = "#8fd98f" if outgoing else "#bbbbbb"
+        rect_id = self.canvas.create_rectangle(
+            x1, y, x2, y + bubble_h, fill=bubble_color, outline=outline_color, width=1, tags=("msg",)
+        )
+
+        cursor_y = y + pad
+        if header_text:
+            self.canvas.create_text(
+                x1 + pad, cursor_y, text=header_text, font=self._header_font,
+                anchor="nw", fill="#0a6f6f", tags=("msg",),
+            )
+            cursor_y += header_h
+
+        if thumb:
+            self._photo_refs.append(thumb)
+            img_id = self.canvas.create_image(x1 + pad, cursor_y, image=thumb, anchor="nw", tags=("msg",))
+            self.canvas.tag_bind(img_id, "<Button-1>", lambda e, p=path: self._open_image_zoom(p))
+            self.canvas.tag_bind(rect_id, "<Button-1>", lambda e, p=path: self._open_image_zoom(p))
+            try:
+                self.canvas.itemconfigure(img_id, cursor="hand2")
+            except Exception:
+                pass
+        else:
+            self.canvas.create_text(
+                x1 + pad, cursor_y, text="🖼 تصویر در دسترس نیست", font=self._body_font,
+                anchor="nw", fill="#999999", tags=("msg",),
+            )
+
+        ts_str = self._format_timestamp(msg)
+        status_icon = ""
+        if msg.get("status") == "read":
+            status_icon = " ✔✔"
+        elif msg.get("status") == "sent":
+            status_icon = " ✔"
+        self.canvas.create_text(
+            x2 if outgoing else x1, y + bubble_h + 2,
+            text=ts_str + status_icon, font=("Tahoma", 7), fill="#888888",
+            anchor="ne" if outgoing else "nw", tags=("msg",),
+        )
+
+        bottom = y + bubble_h + 16
+        self._registry.append((x1, y, x2, bottom, msg, outgoing))
+        return bottom
+
+    def _open_image_zoom(self, path):
+        """پنجره بزرگ‌نمایی تصویر با دکمه بستن و نمایش در پوشه"""
+        if not path or not os.path.exists(path):
+            messagebox.showerror("خطا", "فایل تصویر دیگر در دسترس نیست.")
+            return
+
+        top = tk.Toplevel(self)
+        top.title(os.path.basename(path))
+        top.configure(bg="#1a1a1a")
+
+        try:
+            if HAVE_PIL:
+                img = Image.open(path)
+                max_w, max_h = 900, 650
+                ratio = min(max_w / img.width, max_h / img.height, 1.0)
+                new_size = (max(1, int(img.width * ratio)), max(1, int(img.height * ratio)))
+                img = img.resize(new_size)
+                photo = ImageTk.PhotoImage(img)
+            else:
+                photo = tk.PhotoImage(file=path)
+        except Exception as e:
+            top.destroy()
+            messagebox.showerror("خطا", f"نمایش تصویر ممکن نشد:\n{e}")
+            return
+
+        top._photo_ref = photo  # جلوگیری از garbage collection
+
+        img_label = tk.Label(top, image=photo, bg="#1a1a1a")
+        img_label.pack(padx=10, pady=(10, 4))
+
+        btns = tk.Frame(top, bg="#1a1a1a")
+        btns.pack(fill="x", padx=10, pady=(0, 10))
+
+        tk.Button(
+            btns, text="✕ بستن", command=top.destroy,
+            bg="#e53935", fg="#ffffff", relief="flat", padx=12, pady=4,
+        ).pack(side="left")
+
+        def show_folder():
+            if self.on_show_in_folder:
+                self.on_show_in_folder(path)
+
+        tk.Button(
+            btns, text="📁 نمایش در پوشه", command=show_folder,
+            bg="#4a90d9", fg="#ffffff", relief="flat", padx=12, pady=4,
+        ).pack(side="right")
+
+        top.bind("<Escape>", lambda e: top.destroy())
+        top.transient(self.winfo_toplevel())
+        top.focus_set()
 
     def _draw_bubble(self, y, msg, text, outgoing, sender, is_group):
         w = max(self.canvas.winfo_width(), 200)
