@@ -21,7 +21,7 @@ import soundfx
 import persistence
 from chatmodel import ChatEntry, make_message, new_id
 from chatview import ChatView
-from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR, BUTTON_PALETTE, shade
+from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR, BUTTON_PALETTE, shade, hex_to_rgb
 from emoji_render import get_emoji_icon
 import taskbar_badge
 from version import __version__
@@ -117,6 +117,14 @@ class LANChatApp:
         except Exception:
             pass
         self._configure_button_styles(style)
+
+        # کمی شفافیت کل پنجره برای حس شیشه‌ای/کریستالی (فقط ویندوز/مک از این پشتیبانی می‌کنند)
+        try:
+            self.root.attributes("-alpha", 0.97)
+        except Exception:
+            pass
+
+        self._draw_crystal_accent_bar()
 
         top_bar = ttk.Frame(self.root, padding=8)
         top_bar.pack(side="top", fill="x")
@@ -1325,6 +1333,38 @@ class LANChatApp:
                 background=[("active", hover), ("pressed", pressed), ("disabled", "#cccccc")],
                 foreground=[("disabled", "#eeeeee")],
             )
+
+    def _draw_crystal_accent_bar(self):
+        """یک نوار باریک گرادیان رنگی بالای پنجره می‌کشد، شبیه بازتاب نور روی کریستال"""
+        self._crystal_bar = tk.Canvas(self.root, height=5, highlightthickness=0, bd=0)
+        self._crystal_bar.pack(side="top", fill="x")
+
+        colors = ["#AEE7E7", "#D8D0FF", "#FFD3EC"]  # فیروزه‌ای -> بنفش کم‌رنگ -> صورتی کم‌رنگ
+
+        def redraw(event=None):
+            self._crystal_bar.delete("all")
+            w = self._crystal_bar.winfo_width()
+            if w <= 1:
+                w = self.root.winfo_width() or 900
+            n_segments = len(colors) - 1
+            seg_w = w / n_segments
+            for seg in range(n_segments):
+                c1 = hex_to_rgb(colors[seg])
+                c2 = hex_to_rgb(colors[seg + 1])
+                start_x = int(seg * seg_w)
+                end_x = int((seg + 1) * seg_w)
+                span = max(end_x - start_x, 1)
+                for i in range(0, span, 2):  # هر ۲ پیکسل یک خط، برای کارایی بهتر
+                    t = i / span
+                    r = int(c1[0] + (c2[0] - c1[0]) * t)
+                    g = int(c1[1] + (c2[1] - c1[1]) * t)
+                    b = int(c1[2] + (c2[2] - c1[2]) * t)
+                    self._crystal_bar.create_line(
+                        start_x + i, 0, start_x + i, 5, fill=f"#{r:02x}{g:02x}{b:02x}"
+                    )
+
+        self._crystal_bar.bind("<Configure>", redraw)
+        self.root.after(100, redraw)
 
     def _apply_theme_to_widgets(self):
         fg = contrast_text_color(self.theme_color)
