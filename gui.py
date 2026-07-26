@@ -24,7 +24,9 @@ from chatview import ChatView
 from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR, BUTTON_PALETTE, shade
 from emoji_render import get_emoji_icon
 import taskbar_badge
+from version import __version__
 import tray_icon
+from tooltip import add_tooltip
 
 EMOJIS = [
     "😀", "😂", "😍", "👍", "👎", "🙏", "🎉", "❤️",
@@ -75,7 +77,7 @@ class LANChatApp:
             )
             self.my_name = (entered or "").strip() or get_hostname()
 
-        self.root.title(f"LanChat by MGH - {self.my_name}")
+        self.root.title(f"LanChat by MGH v{__version__} - {self.my_name}")
         self.root.geometry("980x620")
         self.root.minsize(760, 480)
 
@@ -102,7 +104,7 @@ class LANChatApp:
         self.tray = tray_icon.TrayIcon(
             on_open=lambda: self.root.after(0, self._restore_from_tray),
             on_quit=lambda: self.root.after(0, self._quit_app),
-            tooltip=f"LanChat by MGH - {self.my_name}",
+            tooltip=f"LanChat by MGH v{__version__} - {self.my_name}",
         )
         self._tray_active = self.tray.start()
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
@@ -136,16 +138,22 @@ class LANChatApp:
         )
         self.my_name_label.pack(side="right", padx=(8, 0))
 
-        ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self, style="Neutral.TButton").pack(side="right", padx=(4, 0))
+        self._tooltips = []
+
+        rename_btn = ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self, style="Neutral.TButton")
+        rename_btn.pack(side="right", padx=(4, 0))
+        self._tooltips.append(add_tooltip(rename_btn, "ویرایش نام نمایشی من"))
 
         self.notif_toggle_btn = ttk.Button(right_top, width=3, command=self._toggle_notifications, style="Pink.TButton")
         self.notif_toggle_btn.pack(side="right", padx=(4, 0))
         self._update_notif_toggle_button()
+        self._notif_tooltip = add_tooltip(self.notif_toggle_btn, "روشن/خاموش کردن نوتیفیکیشن")
 
         self.theme_btn_canvas = tk.Canvas(right_top, width=30, height=30, highlightthickness=0)
         self.theme_btn_canvas.pack(side="right")
         self._draw_theme_button()
         self.theme_btn_canvas.bind("<Button-1>", lambda e: self._open_theme_popup())
+        self._tooltips.append(add_tooltip(self.theme_btn_canvas, "تغییر رنگ زمینه برنامه"))
 
         main = ttk.Frame(self.root)
         main.pack(fill="both", expand=True)
@@ -189,11 +197,25 @@ class LANChatApp:
         toolbar = ttk.Frame(right)
         toolbar.pack(fill="x", pady=(0, 4))
 
-        ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members, style="Purple.TButton").pack(side="right", padx=2)
-        ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history, style="Danger.TButton").pack(side="right", padx=2)
-        ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz, style="Warning.TButton").pack(side="right", padx=2)
-        ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg, style="Purple.TButton").pack(side="right", padx=2)
-        ttk.Button(toolbar, text="حذف پس‌زمینه", command=self._on_remove_chat_bg, style="Neutral.TButton").pack(side="right", padx=2)
+        members_btn = ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members, style="Purple.TButton")
+        members_btn.pack(side="right", padx=2)
+        self._tooltips.append(add_tooltip(members_btn, "نمایش لیست اعضای گروه"))
+
+        clear_btn = ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history, style="Danger.TButton")
+        clear_btn.pack(side="right", padx=2)
+        self._tooltips.append(add_tooltip(clear_btn, "حذف کامل تاریخچه این گفتگو"))
+
+        buzz_btn = ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz, style="Warning.TButton")
+        buzz_btn.pack(side="right", padx=2)
+        self._tooltips.append(add_tooltip(buzz_btn, "لرزاندن پنجره طرف مقابل"))
+
+        bg_btn = ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg, style="Purple.TButton")
+        bg_btn.pack(side="right", padx=2)
+        self._tooltips.append(add_tooltip(bg_btn, "انتخاب تصویر پس‌زمینه برای این گفتگو"))
+
+        remove_bg_btn = ttk.Button(toolbar, text="حذف پس‌زمینه", command=self._on_remove_chat_bg, style="Neutral.TButton")
+        remove_bg_btn.pack(side="right", padx=2)
+        self._tooltips.append(add_tooltip(remove_bg_btn, "بازگشت به پس‌زمینه پیش‌فرض"))
 
         self.chat_search_var = tk.StringVar()
         chat_search_entry = ttk.Entry(toolbar, textvariable=self.chat_search_var, justify="right", width=22)
@@ -213,7 +235,9 @@ class LANChatApp:
         self.reply_bar = ttk.Frame(right)
         self.reply_bar_label = ttk.Label(self.reply_bar, text="", anchor="e", justify="right")
         self.reply_bar_label.pack(side="right", fill="x", expand=True, padx=(4, 8))
-        ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply, style="Neutral.TButton").pack(side="left")
+        cancel_reply_btn = ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply, style="Neutral.TButton")
+        cancel_reply_btn.pack(side="left")
+        self._tooltips.append(add_tooltip(cancel_reply_btn, "لغو پاسخ"))
         self._reply_target = None
         # self.reply_bar تا زمانی که پاسخ فعال نشده pack نمی‌شود
 
@@ -228,6 +252,7 @@ class LANChatApp:
         else:
             self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker, style="Pink.TButton")
         self.emoji_btn.pack(side="left")
+        self._tooltips.append(add_tooltip(self.emoji_btn, "افزودن ایموجی"))
 
         self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file, style="Info.TButton")
         self.file_btn.pack(side="left", padx=(4, 0))
@@ -763,11 +788,14 @@ class LANChatApp:
         if not new_name or not new_name.strip():
             return
         self.my_name = new_name.strip()
-        self.root.title(f"LanChat by MGH - {self.my_name}")
+        self.root.title(f"LanChat by MGH v{__version__} - {self.my_name}")
         self.my_name_label.config(text=f"این کامپیوتر: {self.my_name}   ({self.my_ip})")
         self._save_state()
 
     def _on_rename_group(self, chat):
+        if not self._is_group_admin(chat):
+            messagebox.showinfo("ویرایش نام گروه", "فقط ادمین گروه می‌تواند نام گروه را تغییر دهد.")
+            return
         new_name = simpledialog.askstring(
             "ویرایش نام گروه", "نام جدید گروه را وارد کنید:",
             initialvalue=chat.name, parent=self.root,
@@ -779,6 +807,7 @@ class LANChatApp:
         self._refresh_contact_list()
         if self.selected_key == chat.key:
             self.chat_title.config(text=self._chat_title_text(chat))
+        self._broadcast_group_update(chat)  # اطلاع‌رسانی نام جدید به همه اعضا
 
     def _on_delete_group(self, chat):
         if not messagebox.askyesno(
@@ -1370,8 +1399,12 @@ class LANChatApp:
     def _update_notif_toggle_button(self):
         if self.notifications_enabled:
             self.notif_toggle_btn.config(text="🔔")
+            tip_text = "خاموش کردن نوتیفیکیشن"
         else:
             self.notif_toggle_btn.config(text="🔕")
+            tip_text = "روشن کردن نوتیفیکیشن"
+        if hasattr(self, "_notif_tooltip"):
+            self._notif_tooltip.text = tip_text
 
     def _maybe_notify(self, title, message, chat_key=None, force=False):
         if not force and not self.notifications_enabled:

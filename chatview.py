@@ -36,6 +36,11 @@ def _is_image_file(path):
     return os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS
 
 
+def _hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip("#")
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
 class ChatView(tk.Frame):
     def __init__(self, parent, on_recall, on_open_file, theme_color="#AFEEEE",
                  box_color=None, on_reply=None, on_show_in_folder=None, **kwargs):
@@ -47,6 +52,7 @@ class ChatView(tk.Frame):
         self.theme_color = theme_color
         self.box_color = box_color or DEFAULT_CHATBOX_COLOR
         self._thumb_cache = {}
+        self._glass_cache = {}
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bg=self.box_color)
         self.vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
@@ -291,6 +297,65 @@ class ChatView(tk.Frame):
             text = text[:-1]
         return text + "…" if text else "…"
 
+    def _get_glass_bubble_image(self, width, height, base_hex, border_hex, radius=16):
+        """
+        تصویر شیشه‌ای/کریستالی برای پس‌زمینه‌ی حباب پیام می‌سازد: گوشه‌های گرد،
+        گرادیان عمودی نرم، و یک جلوه‌ی براقی (Shine) بالای حباب.
+        """
+        width = max(int(width), 2 * radius + 4)
+        height = max(int(height), 2 * radius + 4)
+        key = (width, height, base_hex, border_hex, radius)
+        if key in self._glass_cache:
+            return self._glass_cache[key]
+
+        photo = None
+        try:
+            base_rgb = _hex_to_rgb(base_hex)
+            light_rgb = tuple(min(255, c + 45) for c in base_rgb)
+
+            grad = Image.new("RGB", (1, height))
+            for y in range(height):
+                t = y / max(height - 1, 1)
+                rgb = tuple(int(light_rgb[i] * (1 - t) + base_rgb[i] * t) for i in range(3))
+                grad.putpixel((0, y), rgb)
+            grad = grad.resize((width, height))
+
+            mask = Image.new("L", (width, height), 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, width - 1, height - 1), radius=radius, fill=255)
+
+            img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            img.paste(grad, (0, 0), mask)
+
+            shine = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+            ImageDraw.Draw(shine).ellipse(
+                (-width * 0.15, -height * 0.7, width * 0.85, height * 0.45), fill=(255, 255, 255, 60)
+            )
+            shine.putalpha(Image.composite(shine.split()[3], Image.new("L", (width, height), 0), mask))
+            img = Image.alpha_composite(img, shine)
+
+            border_rgb = _hex_to_rgb(border_hex)
+            ImageDraw.Draw(img).rounded_rectangle(
+                (0, 0, width - 1, height - 1), radius=radius, outline=border_rgb + (200,), width=1
+            )
+            photo = ImageTk.PhotoImage(img)
+        except Exception:
+            photo = None
+
+        self._glass_cache[key] = photo
+        return photo
+
+    def _draw_bubble_background(self, x1, y, x2, bottom_y, base_color, border_color):
+        """پس‌زمینه‌ی حباب پیام را با جلوه‌ی کریستالی رسم می‌کند (یا در نبود Pillow، مستطیل ساده)"""
+        width = x2 - x1
+        height = bottom_y - y
+        photo = self._get_glass_bubble_image(width, height, base_color, border_color) if HAVE_PIL else None
+        if photo:
+            self._photo_refs.append(photo)
+            return self.canvas.create_image(x1, y, image=photo, anchor="nw", tags=("msg",))
+        return self.canvas.create_rectangle(
+            x1, y, x2, bottom_y, fill=base_color, outline=border_color, width=1, tags=("msg",)
+        )
+
     def _load_thumbnail(self, path, max_w=220, max_h=220):
         try:
             mtime = os.path.getmtime(path)
@@ -344,9 +409,7 @@ class ChatView(tk.Frame):
 
         bubble_color = "#dcf8dc" if outgoing else "#ffffff"
         outline_color = "#8fd98f" if outgoing else "#bbbbbb"
-        rect_id = self.canvas.create_rectangle(
-            x1, y, x2, y + bubble_h, fill=bubble_color, outline=outline_color, width=1, tags=("msg",)
-        )
+        rect_id = self._draw_bubble_background(x1, y, x2, y + bubble_h, bubble_color, outline_color)
 
         cursor_y = y + pad
         if header_text:
@@ -360,7 +423,8 @@ class ChatView(tk.Frame):
             self._photo_refs.append(thumb)
             img_id = self.canvas.create_image(x1 + pad, cursor_y, image=thumb, anchor="nw", tags=("msg",))
             self.canvas.tag_bind(img_id, "<Button-1>", lambda e, p=path: self._open_image_zoom(p))
-            self.canvas.tag_bind(rect_id, "<Button-1>", lambda e, p=path: self._open_image_zoom(p))
+            if rect_id is not None:
+                self.canvas.tag_bind(rect_id, "<Button-1>", lambda e, p=path: self._open_image_zoom(p))
             try:
                 self.canvas.itemconfigure(img_id, cursor="hand2")
             except Exception:
@@ -486,9 +550,7 @@ class ChatView(tk.Frame):
             x2 = x1 + bubble_w
 
         outline_color = "#8fd98f" if outgoing else "#bbbbbb"
-        self.canvas.create_rectangle(
-            x1, y, x2, y + bubble_h, fill=bubble_color, outline=outline_color, width=1, tags=("msg",)
-        )
+        self._draw_bubble_background(x1, y, x2, y + bubble_h, bubble_color, outline_color)
 
         cursor_y = y + pad
 
