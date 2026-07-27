@@ -168,7 +168,7 @@ class LANChatApp:
         rename_btn.pack(side="right", padx=(4, 0))
         self._tooltips.append(add_tooltip(rename_btn, "ویرایش نام نمایشی من"))
 
-        self.notif_toggle_btn = ttk.Button(right_top, width=3, command=self._toggle_notifications, style="Pink.TButton")
+        self.notif_toggle_btn = ttk.Button(right_top, width=3, command=self._toggle_notifications, style="Primary.TButton")
         self.notif_toggle_btn.pack(side="right", padx=(4, 0))
         self._update_notif_toggle_button()
         self._notif_tooltip = add_tooltip(self.notif_toggle_btn, "روشن/خاموش کردن نوتیفیکیشن")
@@ -203,9 +203,9 @@ class LANChatApp:
         btns = ttk.Frame(left)
         btns.pack(fill="x", pady=6)
         ttk.Button(btns, text="اسکن شبکه", command=self._on_scan_clicked, style="Primary.TButton").pack(side="right", expand=True, fill="x", padx=2)
-        ttk.Button(btns, text="افزودن دستی", command=self._on_add_manual, style="Info.TButton").pack(side="right", expand=True, fill="x", padx=2)
+        ttk.Button(btns, text="افزودن دستی", command=self._on_add_manual, style="Primary.TButton").pack(side="right", expand=True, fill="x", padx=2)
 
-        ttk.Button(left, text="👥 ایجاد گروه جدید", command=self._on_create_group, style="Purple.TButton").pack(fill="x", pady=(0, 4))
+        ttk.Button(left, text="👥 ایجاد گروه جدید", command=self._on_create_group, style="Primary.TButton").pack(fill="x", pady=(0, 4))
         ttk.Button(left, text="باز کردن پوشه فایل‌های دریافتی", command=self._open_received_folder, style="Neutral.TButton").pack(fill="x")
 
         self.status_label = ttk.Label(left, text="آماده", foreground=self._status_color("success"))
@@ -221,7 +221,7 @@ class LANChatApp:
         toolbar = ttk.Frame(right)
         toolbar.pack(fill="x", pady=(0, 4))
 
-        members_btn = ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members, style="Purple.TButton")
+        members_btn = ttk.Button(toolbar, text="👥 اعضای گروه", command=self._on_show_group_members, style="Primary.TButton")
         members_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(members_btn, "نمایش لیست اعضای گروه"))
 
@@ -229,11 +229,11 @@ class LANChatApp:
         clear_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(clear_btn, "حذف کامل تاریخچه این گفتگو"))
 
-        buzz_btn = ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz, style="Warning.TButton")
+        buzz_btn = ttk.Button(toolbar, text="🔔 بازر", command=self._on_send_buzz, style="Primary.TButton")
         buzz_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(buzz_btn, "لرزاندن پنجره طرف مقابل"))
 
-        bg_btn = ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg, style="Purple.TButton")
+        bg_btn = ttk.Button(toolbar, text="🖼 تصویر پس‌زمینه", command=self._on_choose_chat_bg, style="Primary.TButton")
         bg_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(bg_btn, "انتخاب تصویر پس‌زمینه برای این گفتگو"))
 
@@ -271,17 +271,17 @@ class LANChatApp:
 
         emoji_btn_icon = get_emoji_icon("😊", size=18)
         if emoji_btn_icon:
-            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker, style="Pink.TButton")
+            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker, style="Primary.TButton")
             self.emoji_btn.image = emoji_btn_icon  # جلوگیری از garbage collection تصویر
         else:
-            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker, style="Pink.TButton")
+            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker, style="Primary.TButton")
         self.emoji_btn.pack(side="left")
         self._tooltips.append(add_tooltip(self.emoji_btn, "افزودن ایموجی"))
 
-        self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file, style="Info.TButton")
+        self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file, style="Primary.TButton")
         self.file_btn.pack(side="left", padx=(4, 0))
 
-        self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Success.TButton")
+        self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Primary.TButton")
         self.send_btn.pack(side="right")
 
         self.msg_entry = ttk.Entry(bottom, font=("Tahoma", 10), justify="right")
@@ -598,7 +598,7 @@ class LANChatApp:
             self._refresh_contact_list()
             dlg.destroy()
 
-        ttk.Button(dlg, text="ایجاد گروه", command=confirm, style="Success.TButton").pack(pady=10)
+        ttk.Button(dlg, text="ایجاد گروه", command=confirm, style="Primary.TButton").pack(pady=10)
 
     def _refresh_contact_list(self):
         filter_text = self._real_text_by_var(self.contact_search_var).strip().lower()
@@ -751,7 +751,7 @@ class LANChatApp:
                 self.chat_title.config(text=self._chat_title_text(chat))
             dlg.destroy()
 
-        ttk.Button(dlg, text="افزودن", command=confirm, style="Success.TButton").pack(pady=10)
+        ttk.Button(dlg, text="افزودن", command=confirm, style="Primary.TButton").pack(pady=10)
 
     def _on_remove_group_member(self, chat):
         if not self._is_group_admin(chat):
@@ -1276,13 +1276,13 @@ class LANChatApp:
         for i, em in enumerate(EMOJIS):
             icon = get_emoji_icon(em, size=28)
             if icon:
-                b = tk.Button(frame, image=icon, width=36, height=36, bg="#fce4ec",
-                              activebackground="#f8bbd0", relief="flat",
+                b = tk.Button(frame, image=icon, width=36, height=36, bg="#e6f5f4",
+                              activebackground="#bfe3e0", relief="flat",
                               command=lambda e=em: self._insert_emoji(e, popup))
                 icon_refs.append(icon)
             else:
-                b = tk.Button(frame, text=em, font=("Segoe UI Emoji", 14), width=2, bg="#fce4ec",
-                              activebackground="#f8bbd0", relief="flat",
+                b = tk.Button(frame, text=em, font=("Segoe UI Emoji", 14), width=2, bg="#e6f5f4",
+                              activebackground="#bfe3e0", relief="flat",
                               command=lambda e=em: self._insert_emoji(e, popup))
             b.grid(row=i // cols, column=i % cols, padx=2, pady=2)
         popup._icon_refs = icon_refs  # جلوگیری از garbage collection تا زمانی که پاپ‌آپ باز است
