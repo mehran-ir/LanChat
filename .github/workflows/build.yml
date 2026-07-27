@@ -26,7 +26,7 @@ jobs:
         run: echo "version=$(python -c 'from version import __version__; print(__version__)')" >> "$GITHUB_OUTPUT"
 
       - name: Build EXE
-        run: pyinstaller --onefile --windowed --name "LanChat by MGH v${{ steps.appver.outputs.version }}" --hidden-import=PIL._tkinter_finder --collect-submodules comtypes --hidden-import=pystray._win32 main.py
+        run: pyinstaller --onefile --windowed --name "LanChat by MGH v${{ steps.appver.outputs.version }}" --icon="assets/icon.ico" --add-data "assets;assets" --hidden-import=PIL._tkinter_finder --collect-submodules comtypes --hidden-import=pystray._win32 main.py
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
