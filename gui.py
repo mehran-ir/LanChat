@@ -42,10 +42,24 @@ def resource_base_dir():
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def bundled_resource_path(*relative_parts):
+    """
+    مسیر فایل‌های همراهِ برنامه (مثل آیکون) را پیدا می‌کند — چه در حالت توسعه
+    (کنار خود اسکریپت)، چه داخل exe ساخته‌شده با PyInstaller (پوشه موقت _MEIPASS).
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, *relative_parts)
+
+
 BASE_DIR = resource_base_dir()
 RECEIVED_DIR = os.path.join(BASE_DIR, "received_files")
 BACKGROUNDS_DIR = os.path.join(BASE_DIR, "chat_backgrounds")
 STATE_PATH = os.path.join(BASE_DIR, "lanchat_data.json")
+ICON_PNG_PATH = bundled_resource_path("assets", "icon.png")
+ICON_ICO_PATH = bundled_resource_path("assets", "icon.ico")
 
 
 class LANChatApp:
@@ -80,6 +94,7 @@ class LANChatApp:
         self.root.title(f"LanChat by MGH v{__version__} - {self.my_name}")
         self.root.geometry("980x620")
         self.root.minsize(760, 480)
+        self._set_window_icon()
 
         self.selected_key = None
         self.incoming_queue = queue.Queue()
@@ -105,6 +120,7 @@ class LANChatApp:
             on_open=lambda: self.root.after(0, self._restore_from_tray),
             on_quit=lambda: self.root.after(0, self._quit_app),
             tooltip=f"LanChat by MGH v{__version__} - {self.my_name}",
+            icon_path=ICON_PNG_PATH,
         )
         self._tray_active = self.tray.start()
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
@@ -1333,6 +1349,21 @@ class LANChatApp:
                 background=[("active", hover), ("pressed", pressed), ("disabled", "#cccccc")],
                 foreground=[("disabled", "#eeeeee")],
             )
+
+    def _set_window_icon(self):
+        """آیکون برنامه (لوگوی M Chat) را روی پنجره و نوار وظیفه تنظیم می‌کند"""
+        try:
+            if os.path.exists(ICON_ICO_PATH) and sys.platform.startswith("win"):
+                self.root.iconbitmap(ICON_ICO_PATH)
+        except Exception:
+            pass
+        try:
+            if os.path.exists(ICON_PNG_PATH):
+                icon_img = tk.PhotoImage(file=ICON_PNG_PATH)
+                self.root.iconphoto(True, icon_img)
+                self._icon_photo_ref = icon_img  # جلوگیری از garbage collection
+        except Exception:
+            pass
 
     def _draw_crystal_accent_bar(self):
         """یک نوار باریک گرادیان رنگی بالای پنجره می‌کشد، شبیه بازتاب نور روی کریستال"""

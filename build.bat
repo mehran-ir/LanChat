@@ -19,7 +19,7 @@ pip install --upgrade pyinstaller pillow comtypes pystray
 echo.
 echo [2/3] ساخت فایل exe ...
 for /f "delims=" %%v in ('python -c "from version import __version__; print(__version__)"') do set APP_VER=%%v
-pyinstaller --onefile --windowed --name "LanChat by MGH v%APP_VER%" --hidden-import=comtypes.stream --collect-submodules comtypes --hidden-import=pystray._win32 main.py
+pyinstaller --onefile --windowed --name "LanChat by MGH v%APP_VER%" --icon="assets\icon.ico" --add-data "assets;assets" --hidden-import=comtypes.stream --collect-submodules comtypes --hidden-import=pystray._win32 main.py
 
 echo.
 echo [3/3] پایان.

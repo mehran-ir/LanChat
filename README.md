@@ -93,6 +93,9 @@ lanchat/
 ├── version.py         شماره نسخه فعلی برنامه
 ├── build.bat         اسکریپت ساخت exe با PyInstaller
 ├── CHANGELOG.md       تاریخچه کامل تغییرات هر نسخه
+├── assets/
+│   ├── icon.png       آیکون برنامه (لوگوی M Chat) برای پنجره و Tray
+│   └── icon.ico       همان آیکون در قالب چندرزولوشنی ویندوز، برای خودِ فایل exe
 └── requirements.txt
 ```
 

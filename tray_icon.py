@@ -39,11 +39,26 @@ def _make_icon_image(size: int = 64):
     return img
 
 
+def _load_icon_image(icon_path=None, size: int = 64):
+    """در صورت وجود فایل آیکون واقعی برنامه (لوگو) از آن استفاده می‌کند، وگرنه آیکون جایگزین ساده می‌سازد"""
+    if icon_path:
+        try:
+            import os
+            if os.path.exists(icon_path):
+                img = Image.open(icon_path).convert("RGBA")
+                img = img.resize((size, size))
+                return img
+        except Exception:
+            pass
+    return _make_icon_image(size)
+
+
 class TrayIcon:
-    def __init__(self, on_open=None, on_quit=None, tooltip="LanChat by MGH"):
+    def __init__(self, on_open=None, on_quit=None, tooltip="LanChat by MGH", icon_path=None):
         self.on_open = on_open
         self.on_quit = on_quit
         self.tooltip = tooltip
+        self.icon_path = icon_path
         self.icon = None
         self.thread = None
 
@@ -51,7 +66,7 @@ class TrayIcon:
         if not HAVE_PYSTRAY:
             return False
         try:
-            image = _make_icon_image()
+            image = _load_icon_image(self.icon_path)
             menu = pystray.Menu(
                 pystray.MenuItem("باز کردن LanChat", self._handle_open, default=True),
                 pystray.MenuItem("خروج", self._handle_quit),
