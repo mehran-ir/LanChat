@@ -11,7 +11,7 @@ import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, messagebox, simpledialog, colorchooser
 
 try:
     from PIL import Image, ImageDraw, ImageTk
@@ -128,6 +128,8 @@ class LANChatApp:
             self.theme_color = "#1E1E1E"
         self.chatbox_color = raw_state.get("settings", {}).get("chatbox_color", DEFAULT_CHATBOX_COLOR)
         self.notifications_enabled = raw_state.get("settings", {}).get("notifications_enabled", True)
+        self.button_colors = dict(BUTTON_PALETTE)
+        self.button_colors.update(raw_state.get("settings", {}).get("button_colors", {}))
 
         saved_name = raw_state.get("settings", {}).get("display_name")
         if saved_name:
@@ -228,6 +230,10 @@ class LANChatApp:
         self._draw_theme_button()
         self.theme_btn_canvas.bind("<Button-1>", lambda e: self._open_theme_popup())
         self._tooltips.append(add_tooltip(self.theme_btn_canvas, "تغییر رنگ زمینه برنامه"))
+
+        btn_colors_btn = ttk.Button(right_top, text="🎨", width=3, command=self._open_button_color_picker, style="Primary.TButton")
+        btn_colors_btn.pack(side="right", padx=(4, 0))
+        self._tooltips.append(add_tooltip(btn_colors_btn, "انتخاب رنگ دلخواه دکمه‌ها"))
 
         main = ttk.Frame(self.root)
         main.pack(fill="both", expand=True)
@@ -1326,7 +1332,7 @@ class LANChatApp:
         for i, em in enumerate(EMOJIS):
             icon = get_emoji_icon(em, size=28)
             if icon:
-                b = tk.Button(frame, image=icon, width=36, height=36, bg="#e6f5f4",
+                b = tk.Button(frame, image=icon, width=30, height=30, bg="#e6f5f4",
                               activebackground="#bfe3e0", relief="flat",
                               command=lambda e=em: self._insert_emoji(e, popup))
                 icon_refs.append(icon)
@@ -1346,6 +1352,62 @@ class LANChatApp:
     def _draw_theme_button(self):
         self.theme_btn_canvas.delete("all")
         self.theme_btn_canvas.create_oval(3, 3, 27, 27, fill=self.theme_color, outline="#666666", width=2)
+
+    def _open_button_color_picker(self):
+        labels = {
+            "primary": "رنگ عملیات عادی",
+            "secondary": "رنگ لغو / حذف",
+            "success": "رنگ دکمه‌های ارسال",
+        }
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("انتخاب رنگ دلخواه دکمه‌ها")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+
+        frame = tk.Frame(dlg, padx=14, pady=14)
+        frame.pack()
+
+        swatches = {}
+
+        def make_row(key):
+            row = tk.Frame(frame)
+            row.pack(fill="x", pady=6)
+
+            def pick_color():
+                current = self.button_colors.get(key, "#888888")
+                result = colorchooser.askcolor(color=current, title=labels[key], parent=dlg)
+                if result and result[1]:
+                    self.button_colors[key] = result[1]
+                    swatches[key].configure(bg=result[1])
+
+            swatch = tk.Label(row, width=4, height=1, bg=self.button_colors.get(key, "#888888"),
+                               relief="solid", borderwidth=1, cursor="hand2")
+            swatch.pack(side="right", padx=(8, 0))
+            swatch.bind("<Button-1>", lambda e: pick_color())
+            swatches[key] = swatch
+
+            tk.Button(row, text="انتخاب رنگ...", command=pick_color).pack(side="right", padx=(8, 0))
+            ttk.Label(row, text=labels[key], anchor="e", justify="right", width=20).pack(side="right")
+
+        for key in ("primary", "secondary", "success"):
+            make_row(key)
+
+        def apply_and_close():
+            style = ttk.Style()
+            self._configure_button_styles(style)
+            self._save_state()
+            dlg.destroy()
+
+        def reset_defaults():
+            self.button_colors = dict(BUTTON_PALETTE)
+            for key, swatch in swatches.items():
+                swatch.configure(bg=self.button_colors[key])
+
+        btns = ttk.Frame(frame)
+        btns.pack(fill="x", pady=(10, 0))
+        ttk.Button(btns, text="بازگشت به پیش‌فرض", command=reset_defaults, style="Secondary.TButton").pack(side="left")
+        ttk.Button(btns, text="اعمال", command=apply_and_close, style="Success.TButton").pack(side="right")
 
     def _open_theme_popup(self):
         popup = tk.Toplevel(self.root)
@@ -1386,14 +1448,12 @@ class LANChatApp:
 
     def _configure_button_styles(self, style):
         """
-        برای هر رنگ در پالت دکمه‌ها، یک استایل با گوشه‌های گرد می‌سازد.
-        چون ttk به‌خودی‌خود گوشه گرد ندارد، از یک تصویر کوچک گرد (ساخته‌شده با Pillow)
-        به‌عنوان پس‌زمینه‌ی ۹-تکه‌ای (9-slice) دکمه استفاده می‌کنیم که برای هر اندازه دکمه‌ای کشیده می‌شود.
-        اگر Pillow در دسترس نباشد، به همان استایل تخت قبلی برمی‌گردیم.
+        برای هر رنگ در پالت دکمه‌ها (که کاربر می‌تواند خودش عوض کند)، یک استایل با
+        گوشه‌های کمی گرد و اندازه‌ی جمع‌وجورتر می‌سازد.
         """
         self._rounded_button_images = []  # جلوگیری از garbage collection
 
-        for key, color in BUTTON_PALETTE.items():
+        for key, color in self.button_colors.items():
             style_name = f"{key.capitalize()}.TButton"
             hover = shade(color, -0.12)
             pressed = shade(color, -0.22)
@@ -1405,10 +1465,10 @@ class LANChatApp:
                 except Exception:
                     pass
 
-            # حالت پشتیبان بدون Pillow: همان دکمه تخت قبلی
+            # حالت پشتیبان بدون Pillow: همان دکمه تخت
             style.configure(
                 style_name, background=color, foreground="#ffffff",
-                padding=5, borderwidth=0, focusthickness=0,
+                padding=(6, 2), borderwidth=0, focusthickness=0, font=("Tahoma", 9),
             )
             style.map(
                 style_name,
@@ -1416,7 +1476,7 @@ class LANChatApp:
                 foreground=[("disabled", "#eeeeee")],
             )
 
-    def _install_rounded_button_style(self, style, style_name, base_color, hover_color, pressed_color, radius=9):
+    def _install_rounded_button_style(self, style, style_name, base_color, hover_color, pressed_color, radius=6):
         def rounded_photo(color):
             size = radius * 2 + 6
             img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -1442,7 +1502,8 @@ class LANChatApp:
                 ]}),
             ]}),
         ])
-        style.configure(style_name, foreground="#ffffff", padding=6, borderwidth=0, focusthickness=0)
+        style.configure(style_name, foreground="#ffffff", padding=(6, 2), borderwidth=0,
+                         focusthickness=0, font=("Tahoma", 9))
         style.map(style_name, foreground=[("disabled", "#eeeeee")])
 
     def _set_window_icon(self):
@@ -1686,6 +1747,7 @@ class LANChatApp:
                 "chatbox_color": self.chatbox_color,
                 "display_name": self.my_name,
                 "notifications_enabled": self.notifications_enabled,
+                "button_colors": self.button_colors,
             },
         }
         persistence.save_state(STATE_PATH, data)
