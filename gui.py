@@ -10,7 +10,14 @@ import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox, simpledialog
+
+try:
+    from PIL import Image, ImageDraw, ImageTk
+    HAVE_PIL_GUI = True
+except Exception:
+    HAVE_PIL_GUI = False
 
 from utils import get_hostname, get_local_ip
 from discovery import start_responder, scan_network, probe_single_ip
@@ -60,6 +67,49 @@ BACKGROUNDS_DIR = os.path.join(BASE_DIR, "chat_backgrounds")
 STATE_PATH = os.path.join(BASE_DIR, "lanchat_data.json")
 ICON_PNG_PATH = bundled_resource_path("assets", "icon.png")
 ICON_ICO_PATH = bundled_resource_path("assets", "icon.ico")
+
+_rounded_image_cache = {}
+
+
+def _make_rounded_photo(width, height, color, radius=10):
+    """یک تصویر مستطیل با گوشه‌های گرد (به رنگ داده‌شده) برای استفاده به‌عنوان پس‌زمینه دکمه می‌سازد"""
+    width, height = max(int(width), 1), max(int(height), 1)
+    key = (width, height, color, radius)
+    if key in _rounded_image_cache:
+        return _rounded_image_cache[key]
+    scale = 3  # رسم بزرگ‌تر و سپس کوچک‌سازی، برای لبه‌های صاف‌تر (anti-alias)
+    w, h = width * scale, height * scale
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle((0, 0, w - 1, h - 1), radius=radius * scale, fill=color)
+    img = img.resize((width, height), Image.LANCZOS)
+    photo = ImageTk.PhotoImage(img)
+    _rounded_image_cache[key] = photo
+    return photo
+
+
+class RoundedButton(tk.Button):
+    """دکمه‌ای با گوشه‌های کمی گرد و رنگ پس‌زمینه دلخواه (با Pillow رندر می‌شود)"""
+
+    def __init__(self, parent, text="", command=None, color="#0067EC", fg="#ffffff",
+                 font=("Tahoma", 10), radius=8, height=30, min_width=0, padx=16, **kwargs):
+        f = tkfont.Font(font=font)
+        text_w = f.measure(text) if text else 0
+        width = max(text_w + padx * 2, min_width, height)
+
+        self._bg_normal = _make_rounded_photo(width, height, color, radius)
+        self._bg_hover = _make_rounded_photo(width, height, shade(color, -0.12), radius)
+        self._bg_press = _make_rounded_photo(width, height, shade(color, -0.22), radius)
+
+        super().__init__(
+            parent, text=text, image=self._bg_normal, compound="center",
+            fg=fg, font=font, command=command, bd=0, highlightthickness=0,
+            activeforeground=fg, cursor="hand2", relief="flat", **kwargs
+        )
+        self.bind("<Enter>", lambda e: self.configure(image=self._bg_hover))
+        self.bind("<Leave>", lambda e: self.configure(image=self._bg_normal))
+        self.bind("<ButtonPress-1>", lambda e: self.configure(image=self._bg_press))
+        self.bind("<ButtonRelease-1>", lambda e: self.configure(image=self._bg_hover))
 
 
 class LANChatApp:
@@ -164,7 +214,7 @@ class LANChatApp:
 
         self._tooltips = []
 
-        rename_btn = ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self, style="Neutral.TButton")
+        rename_btn = ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self, style="Primary.TButton")
         rename_btn.pack(side="right", padx=(4, 0))
         self._tooltips.append(add_tooltip(rename_btn, "ویرایش نام نمایشی من"))
 
@@ -206,7 +256,7 @@ class LANChatApp:
         ttk.Button(btns, text="افزودن دستی", command=self._on_add_manual, style="Primary.TButton").pack(side="right", expand=True, fill="x", padx=2)
 
         ttk.Button(left, text="👥 ایجاد گروه جدید", command=self._on_create_group, style="Primary.TButton").pack(fill="x", pady=(0, 4))
-        ttk.Button(left, text="باز کردن پوشه فایل‌های دریافتی", command=self._open_received_folder, style="Neutral.TButton").pack(fill="x")
+        ttk.Button(left, text="باز کردن پوشه فایل‌های دریافتی", command=self._open_received_folder, style="Primary.TButton").pack(fill="x")
 
         self.status_label = ttk.Label(left, text="آماده", foreground=self._status_color("success"))
         self.status_label.pack(fill="x", pady=(8, 0))
@@ -225,7 +275,7 @@ class LANChatApp:
         members_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(members_btn, "نمایش لیست اعضای گروه"))
 
-        clear_btn = ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history, style="Danger.TButton")
+        clear_btn = ttk.Button(toolbar, text="🗑 پاک کردن تاریخچه", command=self._on_clear_history, style="Secondary.TButton")
         clear_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(clear_btn, "حذف کامل تاریخچه این گفتگو"))
 
@@ -237,7 +287,7 @@ class LANChatApp:
         bg_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(bg_btn, "انتخاب تصویر پس‌زمینه برای این گفتگو"))
 
-        remove_bg_btn = ttk.Button(toolbar, text="حذف پس‌زمینه", command=self._on_remove_chat_bg, style="Neutral.TButton")
+        remove_bg_btn = ttk.Button(toolbar, text="حذف پس‌زمینه", command=self._on_remove_chat_bg, style="Secondary.TButton")
         remove_bg_btn.pack(side="right", padx=2)
         self._tooltips.append(add_tooltip(remove_bg_btn, "بازگشت به پس‌زمینه پیش‌فرض"))
 
@@ -259,7 +309,7 @@ class LANChatApp:
         self.reply_bar = ttk.Frame(right)
         self.reply_bar_label = ttk.Label(self.reply_bar, text="", anchor="e", justify="right")
         self.reply_bar_label.pack(side="right", fill="x", expand=True, padx=(4, 8))
-        cancel_reply_btn = ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply, style="Neutral.TButton")
+        cancel_reply_btn = ttk.Button(self.reply_bar, text="✕", width=2, command=self._cancel_reply, style="Secondary.TButton")
         cancel_reply_btn.pack(side="left")
         self._tooltips.append(add_tooltip(cancel_reply_btn, "لغو پاسخ"))
         self._reply_target = None
@@ -278,10 +328,10 @@ class LANChatApp:
         self.emoji_btn.pack(side="left")
         self._tooltips.append(add_tooltip(self.emoji_btn, "افزودن ایموجی"))
 
-        self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file, style="Primary.TButton")
+        self.file_btn = ttk.Button(bottom, text="ارسال فایل", command=self._on_send_file, style="Success.TButton")
         self.file_btn.pack(side="left", padx=(4, 0))
 
-        self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Primary.TButton")
+        self.send_btn = ttk.Button(bottom, text="ارسال", command=self._on_send_message, style="Success.TButton")
         self.send_btn.pack(side="right")
 
         self.msg_entry = ttk.Entry(bottom, font=("Tahoma", 10), justify="right")
@@ -663,7 +713,7 @@ class LANChatApp:
             else:
                 listbox.insert("end", f"👤 {name}   —   {ip}")
 
-        ttk.Button(dlg, text="بستن", command=dlg.destroy, style="Neutral.TButton").pack(pady=(0, 10))
+        ttk.Button(dlg, text="بستن", command=dlg.destroy, style="Secondary.TButton").pack(pady=(0, 10))
 
     def _on_contact_right_click(self, event):
         index = self.contact_listbox.nearest(event.y)
@@ -802,7 +852,7 @@ class LANChatApp:
                 self._render_selected()
             dlg.destroy()
 
-        ttk.Button(dlg, text="حذف عضو", command=confirm, style="Danger.TButton").pack(pady=10)
+        ttk.Button(dlg, text="حذف عضو", command=confirm, style="Secondary.TButton").pack(pady=10)
 
     def _on_rename_self(self):
         new_name = simpledialog.askstring(
@@ -1335,11 +1385,27 @@ class LANChatApp:
         return palette.get(kind, contrast_text_color(self.theme_color))
 
     def _configure_button_styles(self, style):
-        """برای هر دسته از دکمه‌ها یک استایل رنگی جدا می‌سازد تا تمام دکمه‌های برنامه رنگی باشند"""
+        """
+        برای هر رنگ در پالت دکمه‌ها، یک استایل با گوشه‌های گرد می‌سازد.
+        چون ttk به‌خودی‌خود گوشه گرد ندارد، از یک تصویر کوچک گرد (ساخته‌شده با Pillow)
+        به‌عنوان پس‌زمینه‌ی ۹-تکه‌ای (9-slice) دکمه استفاده می‌کنیم که برای هر اندازه دکمه‌ای کشیده می‌شود.
+        اگر Pillow در دسترس نباشد، به همان استایل تخت قبلی برمی‌گردیم.
+        """
+        self._rounded_button_images = []  # جلوگیری از garbage collection
+
         for key, color in BUTTON_PALETTE.items():
             style_name = f"{key.capitalize()}.TButton"
             hover = shade(color, -0.12)
             pressed = shade(color, -0.22)
+
+            if HAVE_PIL_GUI:
+                try:
+                    self._install_rounded_button_style(style, style_name, color, hover, pressed)
+                    continue
+                except Exception:
+                    pass
+
+            # حالت پشتیبان بدون Pillow: همان دکمه تخت قبلی
             style.configure(
                 style_name, background=color, foreground="#ffffff",
                 padding=5, borderwidth=0, focusthickness=0,
@@ -1349,6 +1415,35 @@ class LANChatApp:
                 background=[("active", hover), ("pressed", pressed), ("disabled", "#cccccc")],
                 foreground=[("disabled", "#eeeeee")],
             )
+
+    def _install_rounded_button_style(self, style, style_name, base_color, hover_color, pressed_color, radius=9):
+        def rounded_photo(color):
+            size = radius * 2 + 6
+            img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            ImageDraw.Draw(img).rounded_rectangle((0, 0, size - 1, size - 1), radius=radius, fill=color)
+            photo = ImageTk.PhotoImage(img)
+            self._rounded_button_images.append(photo)
+            return photo
+
+        normal_img = rounded_photo(base_color)
+        hover_img = rounded_photo(hover_color)
+        pressed_img = rounded_photo(pressed_color)
+
+        element_name = f"{style_name}.roundedbg"
+        style.element_create(
+            element_name, "image", normal_img,
+            ("pressed", pressed_img), ("active", hover_img),
+            border=radius, sticky="nsew",
+        )
+        style.layout(style_name, [
+            (element_name, {"sticky": "nsew", "children": [
+                ("Button.padding", {"sticky": "nsew", "children": [
+                    ("Button.label", {"sticky": "nsew"})
+                ]}),
+            ]}),
+        ])
+        style.configure(style_name, foreground="#ffffff", padding=6, borderwidth=0, focusthickness=0)
+        style.map(style_name, foreground=[("disabled", "#eeeeee")])
 
     def _set_window_icon(self):
         """آیکون برنامه (لوگوی M Chat) را روی پنجره و نوار وظیفه تنظیم می‌کند"""
