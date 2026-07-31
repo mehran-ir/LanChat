@@ -127,6 +127,8 @@ class LANChatApp:
         if self.theme_color == "#010B13":  # تم مشکی قدیمی حذف شده؛ به تم تیره جدید منتقل می‌شود
             self.theme_color = "#1E1E1E"
         self.chatbox_color = raw_state.get("settings", {}).get("chatbox_color", DEFAULT_CHATBOX_COLOR)
+        if contrast_text_color(self.theme_color) != "#101010" and self.chatbox_color == DEFAULT_CHATBOX_COLOR:
+            self.chatbox_color = "#232323"  # تم تیره است؛ باکس چت هم تیره شود
         self.notifications_enabled = raw_state.get("settings", {}).get("notifications_enabled", True)
         self.button_colors = dict(BUTTON_PALETTE)
         self.button_colors.update(raw_state.get("settings", {}).get("button_colors", {}))
@@ -327,10 +329,10 @@ class LANChatApp:
 
         emoji_btn_icon = get_emoji_icon("😊", size=18)
         if emoji_btn_icon:
-            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker, style="Primary.TButton")
+            self.emoji_btn = ttk.Button(bottom, image=emoji_btn_icon, command=self._open_emoji_picker)
             self.emoji_btn.image = emoji_btn_icon  # جلوگیری از garbage collection تصویر
         else:
-            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker, style="Primary.TButton")
+            self.emoji_btn = ttk.Button(bottom, text="😊", width=3, command=self._open_emoji_picker)
         self.emoji_btn.pack(side="left")
         self._tooltips.append(add_tooltip(self.emoji_btn, "افزودن ایموجی"))
 
@@ -1351,7 +1353,9 @@ class LANChatApp:
     # ----------------------------------------------------------- THEME ---
     def _draw_theme_button(self):
         self.theme_btn_canvas.delete("all")
-        self.theme_btn_canvas.create_oval(3, 3, 27, 27, fill=self.theme_color, outline="#666666", width=2)
+        self.theme_btn_canvas.create_rectangle(
+            3, 3, 27, 27, fill=self.theme_color, outline="#666666", width=2
+        )
 
     def _open_button_color_picker(self):
         labels = {
@@ -1422,11 +1426,15 @@ class LANChatApp:
         for color in THEME_OPTIONS:
             c = tk.Canvas(row, width=42, height=42, highlightthickness=0)
             c.pack(side="left", padx=6)
-            c.create_oval(2, 2, 40, 40, fill=color, outline="#666666", width=2)
+            c.create_rectangle(2, 2, 40, 40, fill=color, outline="#666666", width=2)
             c.bind("<Button-1>", lambda e, col=color: self._apply_theme(col, popup))
 
     def _apply_theme(self, color, popup=None):
         self.theme_color = color
+        is_dark = contrast_text_color(color) != "#101010"
+        self.chatbox_color = "#232323" if is_dark else DEFAULT_CHATBOX_COLOR
+        if hasattr(self, "chatview"):
+            self.chatview.set_box_color(self.chatbox_color)
         self._apply_theme_to_widgets()
         self._save_state()
         if popup:
