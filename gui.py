@@ -218,22 +218,22 @@ class LANChatApp:
 
         self._tooltips = []
 
-        rename_btn = ttk.Button(right_top, text="✏️", width=3, command=self._on_rename_self, style="Primary.TButton")
+        rename_btn = ttk.Button(right_top, text="✏️", width=2, command=self._on_rename_self, style="Primary.TButton")
         rename_btn.pack(side="right", padx=(4, 0))
         self._tooltips.append(add_tooltip(rename_btn, "ویرایش نام نمایشی من"))
 
-        self.notif_toggle_btn = ttk.Button(right_top, width=3, command=self._toggle_notifications, style="Primary.TButton")
+        self.notif_toggle_btn = ttk.Button(right_top, width=2, command=self._toggle_notifications, style="Primary.TButton")
         self.notif_toggle_btn.pack(side="right", padx=(4, 0))
         self._update_notif_toggle_button()
         self._notif_tooltip = add_tooltip(self.notif_toggle_btn, "روشن/خاموش کردن نوتیفیکیشن")
 
-        self.theme_btn_canvas = tk.Canvas(right_top, width=30, height=30, highlightthickness=0)
+        self.theme_btn_canvas = tk.Canvas(right_top, width=20, height=20, highlightthickness=0)
         self.theme_btn_canvas.pack(side="right")
         self._draw_theme_button()
         self.theme_btn_canvas.bind("<Button-1>", lambda e: self._open_theme_popup())
         self._tooltips.append(add_tooltip(self.theme_btn_canvas, "تغییر رنگ زمینه برنامه"))
 
-        btn_colors_btn = ttk.Button(right_top, text="🎨", width=3, command=self._open_button_color_picker, style="Primary.TButton")
+        btn_colors_btn = ttk.Button(right_top, text="🎨", width=2, command=self._open_button_color_picker, style="Primary.TButton")
         btn_colors_btn.pack(side="right", padx=(4, 0))
         self._tooltips.append(add_tooltip(btn_colors_btn, "انتخاب رنگ دلخواه دکمه‌ها"))
 
@@ -1354,7 +1354,7 @@ class LANChatApp:
     def _draw_theme_button(self):
         self.theme_btn_canvas.delete("all")
         self.theme_btn_canvas.create_rectangle(
-            3, 3, 27, 27, fill=self.theme_color, outline="#666666", width=2
+            2, 2, 18, 18, fill=self.theme_color, outline="#666666", width=1
         )
 
     def _open_button_color_picker(self):
