@@ -1455,25 +1455,11 @@ class LANChatApp:
         return palette.get(kind, contrast_text_color(self.theme_color))
 
     def _configure_button_styles(self, style):
-        """
-        برای هر رنگ در پالت دکمه‌ها (که کاربر می‌تواند خودش عوض کند)، یک استایل با
-        گوشه‌های کمی گرد و اندازه‌ی جمع‌وجورتر می‌سازد.
-        """
-        self._rounded_button_images = []  # جلوگیری از garbage collection
-
+        """برای هر رنگ در پالت دکمه‌ها (که کاربر می‌تواند خودش عوض کند)، یک استایل تخت و مستطیلی می‌سازد"""
         for key, color in self.button_colors.items():
             style_name = f"{key.capitalize()}.TButton"
             hover = shade(color, -0.12)
             pressed = shade(color, -0.22)
-
-            if HAVE_PIL_GUI:
-                try:
-                    self._install_rounded_button_style(style, style_name, color, hover, pressed)
-                    continue
-                except Exception:
-                    pass
-
-            # حالت پشتیبان بدون Pillow: همان دکمه تخت
             style.configure(
                 style_name, background=color, foreground="#ffffff",
                 padding=(6, 2), borderwidth=0, focusthickness=0, font=("Tahoma", 9),

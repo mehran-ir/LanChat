@@ -10,6 +10,7 @@ import time
 from utils import get_hostname, get_local_ip, get_broadcast_addresses, get_all_local_ips
 
 DISCOVERY_PORT = 54545
+SCAN_REPLY_PORT = 54547  # پورت ثابت برای گوش‌دادن به پاسخ اسکن (نه پورت تصادفی) تا فایروال آن را مسدود نکند
 MAGIC = "LANCHAT"
 
 
@@ -119,14 +120,22 @@ def scan_network(tcp_port: int, timeout: float = 2.5, retransmits: int = 4, disp
 
     sockets = []
     for local_ip in local_ips:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s.bind((local_ip, 0))
-            s.setblocking(False)
-            sockets.append(s)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         except Exception:
-            continue
+            pass
+        try:
+            s.bind((local_ip, SCAN_REPLY_PORT))
+        except Exception:
+            try:
+                s.bind((local_ip, 0))  # اگر پورت ثابت اشغال بود، پورت تصادفی جایگزین
+            except Exception:
+                s.close()
+                continue
+        s.setblocking(False)
+        sockets.append(s)
 
     if not sockets:
         try:
@@ -199,6 +208,11 @@ def probe_single_ip(ip: str, tcp_port: int, timeout: float = 2.0, display_name: 
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(timeout)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("", SCAN_REPLY_PORT))
+    except Exception:
+        pass  # اگر پورت ثابت در دسترس نبود، همان پورت تصادفی پیش‌فرض استفاده می‌شود
     message = f"{MAGIC}|DISCOVER|{display_name or get_hostname()}|{tcp_port}".encode("utf-8")
     try:
         sock.sendto(message, (ip, DISCOVERY_PORT))
