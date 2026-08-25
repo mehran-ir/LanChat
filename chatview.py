@@ -43,16 +43,28 @@ def _hex_to_rgb(hex_color):
 
 class ChatView(tk.Frame):
     def __init__(self, parent, on_recall, on_open_file, theme_color="#AFEEEE",
-                 box_color=None, on_reply=None, on_show_in_folder=None, **kwargs):
+                 box_color=None, on_reply=None, on_show_in_folder=None, on_pin=None, **kwargs):
         super().__init__(parent, **kwargs)
         self.on_recall = on_recall
         self.on_open_file = on_open_file
         self.on_reply = on_reply
         self.on_show_in_folder = on_show_in_folder
+        self.on_pin = on_pin
         self.theme_color = theme_color
         self.box_color = box_color or DEFAULT_CHATBOX_COLOR
         self._thumb_cache = {}
         self._glass_cache = {}
+
+        self.pin_banner = tk.Frame(self, bg="#fff3cd", height=28)
+        self.pin_label = tk.Label(self.pin_banner, bg="#fff3cd", fg="#5a4200", anchor="e",
+                                   justify="right", font=("Tahoma", 8), cursor="hand2")
+        self.pin_label.pack(side="right", fill="x", expand=True, padx=(4, 8), pady=3)
+        self.pin_unpin_btn = tk.Label(self.pin_banner, text="✕", bg="#fff3cd", fg="#5a4200",
+                                       cursor="hand2", font=("Tahoma", 9, "bold"))
+        self.pin_unpin_btn.pack(side="left", padx=6)
+        self.pin_label.bind("<Button-1>", lambda e: self._scroll_to_pinned())
+        self.pin_unpin_btn.bind("<Button-1>", lambda e: self._unpin_current())
+        # pin_banner فقط وقتی پیامی پین شده باشد pack می‌شود
 
         self.canvas = tk.Canvas(self, highlightthickness=0, bg=self.box_color)
         self.vbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
@@ -97,7 +109,44 @@ class ChatView(tk.Frame):
         self._current_chat = chat
         self._current_my_name = my_name
         self._current_search = (search_term or "").strip().lower()
+        self._update_pin_banner()
         self._redraw()
+
+    def _update_pin_banner(self):
+        chat = self._current_chat
+        pinned_id = getattr(chat, "pinned_message_id", None) if chat else None
+        msg = chat.find_message(pinned_id) if (chat and pinned_id) else None
+        if msg:
+            preview = (msg.get("text") or "📎 فایل" if msg.get("type") == "file" else msg.get("text")) or ""
+            preview = preview.replace("\n", " ").strip()
+            if len(preview) > 60:
+                preview = preview[:60] + "…"
+            self.pin_label.configure(text=f"📌 {preview}")
+            if not self.pin_banner.winfo_ismapped():
+                self.pin_banner.pack(side="top", fill="x", before=self.canvas)
+        else:
+            if self.pin_banner.winfo_ismapped():
+                self.pin_banner.pack_forget()
+
+    def _scroll_to_pinned(self):
+        chat = self._current_chat
+        pinned_id = getattr(chat, "pinned_message_id", None) if chat else None
+        if not pinned_id:
+            return
+        for x1, y1, x2, y2, msg, outgoing in self._registry:
+            if msg.get("id") == pinned_id:
+                bbox = self.canvas.bbox("all")
+                if bbox and bbox[3] > 0:
+                    frac = max(0, (y1 - 10) / bbox[3])
+                    self.canvas.yview_moveto(frac)
+                return
+
+    def _unpin_current(self):
+        chat = self._current_chat
+        pinned_id = getattr(chat, "pinned_message_id", None) if chat else None
+        msg = chat.find_message(pinned_id) if (chat and pinned_id) else None
+        if msg and self.on_pin:
+            self.on_pin(msg)
 
     def clear(self):
         self.canvas.delete("all")

@@ -12,7 +12,7 @@ def new_id() -> str:
 
 class ChatEntry:
     def __init__(self, key, name, is_group=False, members=None, ip=None, port=None, bg_image=None,
-                 unread=0, admin_ip=None):
+                 unread=0, admin_ip=None, pinned_message_id=None):
         self.key = key
         self.name = name
         self.is_group = is_group
@@ -24,6 +24,7 @@ class ChatEntry:
         self.unread = unread  # تعداد پیام/رویداد خوانده‌نشده (برای نمایش Badge کنار نام)
         self.admin_ip = admin_ip  # فقط برای گروه: آی‌پی کسی که گروه را ساخته و مدیریت می‌کند
         self.is_online = None  # True/False/None(نامشخص) — عمداً ذخیره نمی‌شود، هر اجرا از نو
+        self.pinned_message_id = pinned_message_id  # شناسه پیام پین‌شده (یا None)
 
     @property
     def display_name(self):
@@ -63,6 +64,7 @@ class ChatEntry:
             "bg_image": self.bg_image,
             "unread": self.unread,
             "admin_ip": self.admin_ip,
+            "pinned_message_id": self.pinned_message_id,
         }
 
     @staticmethod
@@ -77,6 +79,7 @@ class ChatEntry:
             bg_image=d.get("bg_image"),
             unread=d.get("unread", 0),
             admin_ip=d.get("admin_ip"),
+            pinned_message_id=d.get("pinned_message_id"),
         )
         c.messages = d.get("messages", [])
         return c

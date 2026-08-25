@@ -311,6 +311,7 @@ class LANChatApp:
             right, on_recall=self._handle_recall_click, on_open_file=self._open_path,
             theme_color=self.theme_color, box_color=self.chatbox_color,
             on_reply=self._start_reply, on_show_in_folder=self._show_in_explorer,
+            on_pin=self._on_pin_message,
         )
         self.chatview.pack(fill="both", expand=True)
 
@@ -480,6 +481,12 @@ class LANChatApp:
             for m in chat.messages:
                 if m.get("outgoing") and m.get("id") in id_set and m.get("status") == "sent":
                     m["status"] = "read"
+        elif msg_type == "pin_update":
+            chat.pinned_message_id = header.get("message_id") if header.get("pinned") else None
+            self._save_state()
+            if self.selected_key == chat.key:
+                self._render_selected()
+            return
         elif msg_type == "group_update":
             # فقط ادمین واقعی گروه اجازه دارد لیست اعضا را تغییر دهد؛ در غیر این صورت نادیده گرفته می‌شود
             if chat.admin_ip and ip != chat.admin_ip:
@@ -594,7 +601,7 @@ class LANChatApp:
         self._set_status(f"در حال بررسی {ip} ...", "warning")
 
         def worker():
-            info = probe_single_ip(ip, TCP_PORT, timeout=2.5, display_name=self.my_name)
+            info = probe_single_ip(ip, TCP_PORT, timeout=2.5, display_name=self.my_name, use_fixed_port=True)
             self.root.after(0, lambda: self._on_probe_done(ip, info))
 
         threading.Thread(target=worker, daemon=True).start()
@@ -1180,6 +1187,28 @@ class LANChatApp:
                 if not chat.is_group:
                     chat.is_online = True
                 self.root.after(0, lambda: (self._render_if_open(chat), self._save_state()))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_pin_message(self, msg):
+        chat = self._get_selected_chat()
+        if not chat:
+            return
+        currently_pinned = chat.pinned_message_id == msg.get("id")
+        chat.pinned_message_id = None if currently_pinned else msg.get("id")
+        self._save_state()
+        self._render_selected()
+
+        def worker():
+            for ip, port in chat.targets(self.my_ip):
+                try:
+                    client.send_pin_update(
+                        ip, port, self.my_name, chat.key, chat.pinned_message_id,
+                        pinned=not currently_pinned,
+                        group_id=chat.key if chat.is_group else None,
+                    )
+                except Exception:
+                    pass
 
         threading.Thread(target=worker, daemon=True).start()
 

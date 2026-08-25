@@ -12,6 +12,7 @@ from netprotocol import (
     send_read as _send_read,
     send_group_update as _send_group_update,
     send_presence as _send_presence,
+    send_pin_update as _send_pin_update,
 )
 
 
@@ -72,6 +73,18 @@ def send_presence(ip: str, port: int, from_name: str, status: str, timeout: floa
         sock.connect((ip, port))
         sock.settimeout(None)
         _send_presence(sock, from_name, status)
+    finally:
+        sock.close()
+
+
+def send_pin_update(ip: str, port: int, from_name: str, target_key: str, message_id, pinned: bool,
+                     group_id: str = None, timeout: float = 5.0):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((ip, port))
+        sock.settimeout(None)
+        _send_pin_update(sock, from_name, target_key, message_id, pinned, group_id)
     finally:
         sock.close()
 

@@ -87,6 +87,14 @@ def send_recall(sock: socket.socket, from_name: str, target_id: str, group_id: s
     _send_header_only(sock, header)
 
 
+def send_pin_update(sock: socket.socket, from_name: str, target_key: str, message_id, pinned: bool, group_id: str = None):
+    header = {"type": "pin_update", "from": from_name, "target_key": target_key,
+              "message_id": message_id, "pinned": pinned}
+    if group_id:
+        header["group_id"] = group_id
+    _send_header_only(sock, header)
+
+
 def send_read(sock: socket.socket, from_name: str, message_ids: list, group_id: str = None):
     header = {"type": "read", "from": from_name, "message_ids": message_ids}
     if group_id:

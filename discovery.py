@@ -14,13 +14,6 @@ SCAN_REPLY_PORT = 54547  # پورت ثابت برای گوش‌دادن به پ�
 MAGIC = "LANCHAT"
 
 
-def start_responder(tcp_port: int, stop_event: threading.Event, get_display_name=None):
-    """
-    یک ترد که همیشه در پس‌زمینه اجرا می‌شود و به درخواست‌های کشف کامپیوترهای دیگر پاسخ می‌دهد.
-    get_display_name: تابعی بدون آرگومان که نام نمایشی فعلی را برمی‌گرداند (اگر کاربر
-    بعداً نامش را عوض کند، بدون نیاز به راه‌اندازی مجدد این ترد، نام جدید اعمال می‌شود).
-    اگر داده نشود، از نام کامپیوتر (hostname) استفاده می‌شود.
-    """
 def start_responder(tcp_port: int, stop_event: threading.Event, get_display_name=None, on_error=None):
     """
     یک ترد که همیشه در پس‌زمینه اجرا می‌شود و به درخواست‌های کشف کامپیوترهای دیگر پاسخ می‌دهد.
@@ -200,19 +193,23 @@ def scan_network(tcp_port: int, timeout: float = 2.5, retransmits: int = 4, disp
     return list(results.values())
 
 
-def probe_single_ip(ip: str, tcp_port: int, timeout: float = 2.0, display_name: str = None):
+def probe_single_ip(ip: str, tcp_port: int, timeout: float = 2.0, display_name: str = None, use_fixed_port: bool = False):
     """
     برای افزودن دستی یک کامپیوتر با آی‌پی مشخص: تلاش می‌کند نام آن را با ارسال یک
     درخواست کشف مستقیم (unicast) به همان آی‌پی پیدا کند.
+    use_fixed_port: فقط برای اسکن‌های کم‌تکرار و کاربرمحور True شود؛ برای پینگ‌های
+    پس‌زمینه‌ای مکرر (مثل بررسی آنلاین/آفلاین) نباید فعال شود، چون باز/بسته شدن
+    مکرر یک پورت ثابت می‌تواند در ویندوز باعث تداخل با نرم‌افزارهای شبکه دیگر شود.
     خروجی: دیکشنری {"name":..., "ip":..., "port":...} یا None در صورت عدم پاسخ.
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(timeout)
-    try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", SCAN_REPLY_PORT))
-    except Exception:
-        pass  # اگر پورت ثابت در دسترس نبود، همان پورت تصادفی پیش‌فرض استفاده می‌شود
+    if use_fixed_port:
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("", SCAN_REPLY_PORT))
+        except Exception:
+            pass  # اگر پورت ثابت در دسترس نبود، همان پورت تصادفی پیش‌فرض استفاده می‌شود
     message = f"{MAGIC}|DISCOVER|{display_name or get_hostname()}|{tcp_port}".encode("utf-8")
     try:
         sock.sendto(message, (ip, DISCOVERY_PORT))
