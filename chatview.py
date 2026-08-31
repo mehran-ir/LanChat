@@ -672,6 +672,12 @@ class ChatView(tk.Frame):
                         label="↩️ پاسخ",
                         command=lambda m=msg: self.on_reply(m),
                     )
+                if self.on_pin:
+                    is_pinned = getattr(self._current_chat, "pinned_message_id", None) == msg.get("id")
+                    menu.add_command(
+                        label="📌 برداشتن پین" if is_pinned else "📌 پین کردن پیام",
+                        command=lambda m=msg: self.on_pin(m),
+                    )
                 if outgoing and msg.get("status") in ("sent", "read", "pending"):
                     menu.add_command(
                         label="🚫 لغو ارسال / حذف برای همه",
