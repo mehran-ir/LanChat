@@ -44,6 +44,7 @@ class ChatServer(threading.Thread):
 
     def _handle_connection(self, conn: socket.socket, addr):
         try:
+            conn.settimeout(20.0)  # جلوگیری از هنگ کردن ابدی در صورت قطعی/کندی شبکه طرف مقابل
             header = recv_frame(conn, self.save_dir)
             header["ip"] = addr[0]
             self.on_message_received(header)
