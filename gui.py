@@ -34,6 +34,7 @@ import taskbar_badge
 from version import __version__
 import tray_icon
 from tooltip import add_tooltip
+import hang_watchdog
 
 EMOJIS = [
     "😀", "😂", "😍", "👍", "👎", "🙏", "🎉", "❤️",
@@ -167,6 +168,8 @@ class LANChatApp:
         self.root.bind("<FocusIn>", lambda e: setattr(self, "_has_focus", True))
         self.root.bind("<FocusOut>", lambda e: setattr(self, "_has_focus", False))
         self.root.after(500, self._update_taskbar_badge)
+        hang_watchdog.start_watchdog(os.path.join(BASE_DIR, "hang_debug.log"))
+        self.root.after(1000, self._heartbeat)
         self.root.after(4000, self._retry_failed_messages)
         self.root.after(2500, self._check_presence)
 
@@ -1752,6 +1755,10 @@ class LANChatApp:
         self._send_read_receipts(chat)
         self._render_selected()
         self._refresh_contact_list()
+
+    def _heartbeat(self):
+        hang_watchdog.heartbeat()
+        self.root.after(1000, self._heartbeat)
 
     def _update_taskbar_badge(self):
         try:
