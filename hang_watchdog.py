@@ -13,11 +13,19 @@ import traceback
 
 _last_heartbeat = [time.time()]
 _dumped_at = [0.0]
+_alive_path = [None]
 
 
 def heartbeat():
     """باید هر ۱ ثانیه از ترد اصلی Tkinter (با root.after) صدا زده شود"""
-    _last_heartbeat[0] = time.time()
+    now = time.time()
+    _last_heartbeat[0] = now
+    try:
+        if _alive_path[0]:
+            with open(_alive_path[0], "w", encoding="utf-8") as f:
+                f.write(str(now))
+    except Exception:
+        pass
 
 
 def _dump_stacks(log_path):
@@ -37,15 +45,15 @@ def _dump_stacks(log_path):
         pass
 
 
-def start_watchdog(log_path, hang_threshold=6.0, check_interval=2.0):
+def start_watchdog(log_path, hang_threshold=2.5, check_interval=1.0, alive_path=None):
     """این تابع یک‌بار در شروع برنامه صدا زده می‌شود"""
+    _alive_path[0] = alive_path
     def loop():
         while True:
             time.sleep(check_interval)
             idle = time.time() - _last_heartbeat[0]
             if idle > hang_threshold:
-                # هر ۳۰ ثانیه یک‌بار دوباره دامپ می‌گیرد تا اگر هنگ ادامه داشت، تازه بماند
-                if time.time() - _dumped_at[0] > 30:
+                if time.time() - _dumped_at[0] > 15:
                     _dumped_at[0] = time.time()
                     _dump_stacks(log_path)
 
