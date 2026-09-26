@@ -30,7 +30,6 @@ from chatmodel import ChatEntry, make_message, new_id
 from chatview import ChatView
 from theme import DEFAULT_THEME, THEME_OPTIONS, contrast_text_color, DEFAULT_CHATBOX_COLOR, BUTTON_PALETTE, shade, hex_to_rgb
 from emoji_render import get_emoji_icon
-import taskbar_badge
 from version import __version__
 import tray_icon
 from tooltip import add_tooltip
@@ -1764,12 +1763,10 @@ class LANChatApp:
         self.root.after(1000, self._heartbeat)
 
     def _update_taskbar_badge(self):
-        try:
-            total = sum(c.unread for c in self.contacts.values()) + sum(c.unread for c in self.groups.values())
-            hwnd = self.root.winfo_id()
-            taskbar_badge.set_badge(hwnd, total)
-        except Exception:
-            pass
+        # این قابلیت (Badge روی آیکون Taskbar از طریق COM) به‌طور کامل غیرفعال شد؛
+        # مشکوک‌ترین عامل هنگ کردن برنامه بود (تعامل COM بین تردها، تایید شده با hang_debug.log).
+        # شمارنده‌ی خوانده‌نشده همچنان در لیست کامپیوترها (Badge قرمز کنار اسم) نمایش داده می‌شود.
+        pass
 
     def _save_state(self):
         data = {

@@ -13,13 +13,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [1/3] نصب PyInstaller و Pillow و comtypes و pystray ...
-pip install --upgrade pyinstaller pillow comtypes pystray
+echo [1/3] نصب PyInstaller و Pillow و pystray ...
+pip install --upgrade pyinstaller pillow pystray
 
 echo.
 echo [2/3] ساخت فایل exe ...
 for /f "delims=" %%v in ('python -c "from version import __version__; print(__version__)"') do set APP_VER=%%v
-pyinstaller --onefile --windowed --name "LanChat by MGH v%APP_VER%" --icon="assets\icon.ico" --add-data "assets;assets" --hidden-import=comtypes.stream --collect-submodules comtypes --hidden-import=pystray._win32 main.py
+pyinstaller --onefile --windowed --name "LanChat by MGH v%APP_VER%" --icon="assets\icon.ico" --add-data "assets;assets" --hidden-import=pystray._win32 main.py
 
 echo.
 echo [3/3] پایان.
